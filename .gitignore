@@ -138,3 +138,5 @@ out/*
 # pdfs
 *.pdf
 
+# vscode
+.vscode/*
