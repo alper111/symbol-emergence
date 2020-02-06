@@ -20,7 +20,7 @@ class MLP_gaussian(torch.nn.Module):
         out = self.model(x)
         dim = out.shape[-1]
         out[..., :dim//2] = torch.tanh(out[..., :dim//2]) * np.pi
-        out[..., dim//2:] = 1.5 * torch.sigmoid(out[..., dim//2:])
+        out[..., dim//2:] = torch.exp(out[..., dim//2:])
         return out
 
     def action(self, x):
@@ -247,8 +247,11 @@ class Memory:
         self.values.append(value)
         self.size += 1
 
-    def peek_n(self, n):
-        idx = list(range(self.size-n, self.size))
+    def peek_n(self, n, from_start=False):
+        if from_start:
+            idx = list(range(self.size-n, self.size))
+        else:
+            idx = list(range(n))
         return self.get_by_idx(idx)
 
     def sample_n(self, n):
