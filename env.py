@@ -28,15 +28,11 @@ class Environment:
         # white = np.array(self.get_object_position("white_ball"))
         # red = np.array(self.get_object_position("red_ball"))
         red_contacts = self.contacts[1]
-        yellow_contacts = self.contacts[2]
-        if red_contacts > 0 and yellow_contacts > 0:
-            reward = 10.0
-        elif red_contacts > 0 or yellow_contacts > 0:
-            reward = 0.0
+        # yellow_contacts = self.contacts[2]
+        if red_contacts > 0:  # and yellow_contacts > 0:
+            reward = 1.0
         else:
-            # reward = -np.linalg.norm(white-red, 2)
-            reward = -10.0
-        # reward = -np.linalg.norm(white-red, 2) + red_contacts * 1.0
+            reward = -1.0
 
         return reward
 
@@ -89,7 +85,7 @@ class Environment:
                 scale = self.rng_ranges[i][:3]
                 offset = self.rng_ranges[i][3:]
                 pos = np.random.rand(3) * scale + offset
-                if i != 0:
+                if i != 0 and i != 2:
                     for p in current:
                         if np.linalg.norm(p[:2] - pos[:2]) < 0.1:
                             valid = False
@@ -103,13 +99,14 @@ class Environment:
             self.set_model_state(self.objects[i], pos, [0, 0, 0, 1])
 
     def load_prev_state(self):
+        self.contacts = [0] * (self.num_objects)
         for i, pos in enumerate(self.prev_state):
             self.set_model_state(self.objects[i], pos, [0, 0, 0, 1])
 
     def is_stationary(self):
         msg = self.get_model_states()
         indices = list(map(lambda x: msg.name.index(x), self.objects))
-        if self.contacts[1] > 0 and self.contacts[2] > 0:
+        if self.contacts[1] > 0:  # and self.contacts[2] > 0:
             return True
         for i, obj in enumerate(msg.twist):
             if i not in indices:
@@ -144,6 +141,12 @@ class Environment:
         msg.pose.orientation.y = quat[1]
         msg.pose.orientation.z = quat[2]
         msg.pose.orientation.w = quat[3]
+        msg.twist.linear.x = 0.0
+        msg.twist.linear.y = 0.0
+        msg.twist.linear.z = 0.0
+        msg.twist.angular.x = 0.0
+        msg.twist.angular.y = 0.0
+        msg.twist.angular.z = 0.0
         self.publisher.publish(msg)
 
     def is_contact(self, msg):
