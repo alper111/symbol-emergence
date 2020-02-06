@@ -46,8 +46,7 @@ random_ranges = np.array([
 ])
 
 world = env.Environment(objects=objects, rng_ranges=random_ranges)
-episode = 1000
-rollout = 8
+episode = 10000
 action_dim = 1
 obs_dim = 2 * len(objects)
 hidden_dim = 128
@@ -60,16 +59,16 @@ policy_network = models.SoftTree(
 value_network = models.ValueNetwork([obs_dim, hidden_dim, hidden_dim, 1])
 
 optim_policy = torch.optim.Adam(
-    lr=0.001,
+    lr=0.0003,
     params=policy_network.parameters(),
     amsgrad=True)
 
 optim_value = torch.optim.Adam(
-    lr=0.002,
+    lr=0.001,
     params=value_network.parameters(),
     amsgrad=True
 )
-criterion = torch.nn.SmoothL1Loss(reduction="sum")
+criterion = torch.nn.MSELoss(reduction="sum")
 
 print("="*10+"POLICY NETWORK"+"="*10)
 print(policy_network)
@@ -113,12 +112,13 @@ for epi in range(episode):
             stationary = world.is_stationary()
             end_time = rospy.get_time()
         end_time = rospy.get_time()
-        reward = world.get_reward()
+        reward = world.get_reward() - 0.1 * (end_time - start_time)
 
         # bookkeeping
         rewards.append(reward)
         logprobs.append(logprob_leaf.sum())
         world.load_prev_state()
+        rospy.sleep(0.2)
 
         if logprob_leaf.sum() > curr_max:
             curr_max = logprob_leaf
@@ -156,13 +156,10 @@ for epi in range(episode):
             )
 
     # rospy.loginfo("optimizing policy net")
-    for k in range(5):
+    for k in range(10):
         # optimize the policy network
         optim_policy.zero_grad()
-        if memory.size < 64:
-            old_s, old_a, old_r, old_logp, old_v = memory.sample_n(memory.size)
-        else:
-            old_s, old_a, old_r, old_logp, old_v = memory.sample_n(64)
+        old_s, old_a, old_r, old_logp, old_v = memory.sample_n(policy_network.leaf_count)
         logp = policy_network.logprob(old_s, old_a.unsqueeze(0)).sum(dim=-1)
         ratio = torch.exp(logp - old_logp)
         surr1 = ratio * (old_r - old_v)
@@ -172,7 +169,6 @@ for epi in range(episode):
         policy_loss.backward()
         optim_policy.step()
 
-    # rospy.loginfo("optimizing value net")
     # optimize the value network
     optim_value.zero_grad()
     value_loss = criterion(value_estimate, rewards)
