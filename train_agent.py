@@ -34,7 +34,7 @@ rospy.init_node("training_node", anonymous=True)
 rospy.sleep(1.0)
 agent = torobo.Torobo()
 agent.initialize()
-memory = models.Memory(200)
+memory = models.Memory(16)
 
 objects = ["white_ball", "red_ball", "yellow_ball"]
 random_ranges = np.array([
@@ -42,35 +42,22 @@ random_ranges = np.array([
     # [0.0, 0.80, 0., 0.85, -0.10, 1.09],
     # [0.20, 0.60, 0., 0.31, -0.10, 1.09],
     [0.30, 0.80, 0., 0.7, -0.10, 1.09],
-    [0.30, 0.80, 0., 0.7, -0.10, 1.09],
+    [0.0, 0.0, 0.0, 0.82, 0.40, 1.09],
 ])
 
 world = env.Environment(objects=objects, rng_ranges=random_ranges)
-episode = 1000
+episode = 5000
 rollout = 8
 action_dim = 1
 obs_dim = 2 * len(objects)
-hidden_dim = 128
+hidden_dim = 32
 
-policy_network = models.MLP_gaussian([
-    obs_dim,
-    hidden_dim,
-    hidden_dim,
-    2*action_dim])
+policy_network = models.MLP_gaussian([obs_dim, hidden_dim, hidden_dim, hidden_dim, 2*action_dim])
+value_network = models.ValueNetwork([obs_dim, hidden_dim, hidden_dim, hidden_dim, 1])
 
-value_network = models.ValueNetwork([obs_dim, hidden_dim, hidden_dim, 1])
-
-optim_policy = torch.optim.Adam(
-    lr=0.0003,
-    params=policy_network.parameters(),
-    amsgrad=True)
-
-optim_value = torch.optim.Adam(
-    lr=0.001,
-    params=value_network.parameters(),
-    amsgrad=True
-)
-criterion = torch.nn.SmoothL1Loss(reduction="sum")
+optim_policy = torch.optim.Adam(lr=0.0001, params=policy_network.parameters(), amsgrad=True)
+optim_value = torch.optim.Adam(lr=0.01, params=value_network.parameters(), amsgrad=True)
+criterion = torch.nn.MSELoss(reduction="mean")
 
 print("="*10+"POLICY NETWORK"+"="*10)
 print(policy_network)
@@ -119,7 +106,7 @@ for epi in range(episode):
             end_time = rospy.get_time()
         end_time = rospy.get_time()
         obs = torch.tensor(world.get_state(), dtype=torch.float)
-        reward = world.get_reward() - 0.1 * (end_time - start_time)
+        reward = world.get_reward() - 0.01 * (end_time - start_time)
 
         # bookkeeping
         rewards.append(reward)
@@ -156,13 +143,20 @@ for epi in range(episode):
                     value_estimate[i].clone()
                 )
 
-        for k in range(10):
+        # last checkpoint for debugging
+        with torch.no_grad():
+            torch.save(policy_network.state_dict(), "save/policy_net_last.ckpt")
+            torch.save(value_network.state_dict(), "save/value_net_last.ckpt")
+        np.save("save/rewards.npy", reward_history)
+
+        for k in range(1):
             # optimize the policy network
             optim_policy.zero_grad()
             # if memory.size < 64:
             #     old_s, old_a, old_r, old_logp, old_v = memory.sample_n(rollout)
             # else:
-            old_s, old_a, old_r, old_logp, old_v = memory.sample_n(rollout)
+            #     old_s, old_a, old_r, old_logp, old_v = memory.sample_n(64)
+            old_s, old_a, old_r, old_logp, old_v = memory.peek_n(rollout, from_start=True)
             logp = policy_network.logprob(old_s, old_a).sum(dim=-1)
             ratio = torch.exp(logp - old_logp)
             surr1 = ratio * (old_r - old_v)
@@ -179,20 +173,14 @@ for epi in range(episode):
         value_loss.backward()
         optim_value.step()
         print("Episode: %d, reward: %.3f, adv: %.3f, p loss: %.3f, v loss: %.3f, mem: %d"
-            % (epi+1, cumrew, advantage.sum().item(), policy_loss.item(), value_loss.item(), memory.size))
+              % (epi+1, cumrew, advantage.sum().item(), policy_loss.item(), value_loss.item(), memory.size))
 
-        # last checkpoint for debugging
-        with torch.no_grad():
-            torch.save(policy_network.state_dict(), "save/policy_net_last.ckpt")
-            torch.save(value_network.state_dict(), "save/value_net_last.ckpt")
-
+    else:
         # save models
         if (epi+1) % 50 == 0:
             with torch.no_grad():
                 torch.save(policy_network.state_dict(), "save/policy_net_{0}.ckpt".format(epi+1))
                 torch.save(value_network.state_dict(), "save/value_net_{0}.ckpt".format(epi+1))
-        np.save("save/rewards.npy", reward_history)
-    else:
         print("Episode: %d, reward: %.3f, adv: %.3f" % (epi+1, cumrew, advantage.sum().item()))
 
 agent.zero_pose()

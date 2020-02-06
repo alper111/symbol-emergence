@@ -5,6 +5,7 @@ import rospy
 import env
 import numpy as np
 
+
 def colorize(num):
     num[num > 1] = 1
     num[num < 0] = 0
@@ -58,8 +59,9 @@ colors = [
     "lemonchiffon",
     "gray50"]
 
+object_list = ["white_ball", "red_ball", "yellow_ball"]
 rospy.init_node("visualizer")
-world = env.Environment(["white_ball", "red_ball", "yellow_ball"])
+world = env.Environment(object_list)
 
 master = tk.Tk()
 
@@ -77,7 +79,7 @@ canvas_right.pack()
 
 
 sd = torch.load("save/policy_net_last.ckpt")
-policy_network = models.MLP_gaussian([6, 128, 128, 2])
+policy_network = models.MLP_gaussian([len(object_list)*2, 32, 32, 32, 2])
 policy_network.load_state_dict(sd)
 for p in policy_network.parameters():
     p.requires_grad = False
@@ -92,13 +94,15 @@ def refresh():
         inp = torch.tensor(world.get_state(), dtype=torch.float)
         o1 = policy_network.model[:2](inp)
         o2 = policy_network.model[:4](inp)
-        o3 = policy_network(inp)
-        o3[..., :o3.shape[-1]//2] = o3[..., :o3.shape[-1]//2] / (2*np.pi) + 0.5
+        o3 = policy_network.model[:6](inp)
+        o4 = policy_network(inp)
+        o4[..., :o4.shape[-1]//2] = o4[..., :o4.shape[-1]//2] / (2*np.pi) + 0.5
 
     c1 = colorize(inp)
     c2 = colorize(o1 / o1.max())
     c3 = colorize(o2 / o2.max())
-    c4 = colorize(o3)
+    c4 = colorize(o3 / o3.max())
+    c5 = colorize(o4)
     canvas_left.delete("all")
     canvas_right.delete("all")
 
@@ -107,8 +111,8 @@ def refresh():
     center_y = HEIGHT // 2
     canvas_right.create_oval(center_x-RADIUS, center_y-RADIUS, center_x+RADIUS, center_y+RADIUS, fill="#0000ff")
     DOT_RADIUS = 20
-    ANGLE = (o3[0].item() * np.pi * 2 - np.pi)
-    ANGLE_VAR = o3[1].item()
+    ANGLE = (o4[0].item() * np.pi * 2 - np.pi)
+    ANGLE_VAR = o4[1].item()
     # center
     DOT_x = center_x + 200 * np.sin(ANGLE)
     DOT_y = center_y + 200 * np.cos(ANGLE)
@@ -127,8 +131,6 @@ def refresh():
     DOT_x = center_x + 200 * np.sin(ANGLE-ANGLE_VAR)
     DOT_y = center_y + 200 * np.cos(ANGLE-ANGLE_VAR)
     canvas_right.create_oval(DOT_x-DOT_RADIUS, DOT_y-DOT_RADIUS, DOT_x+DOT_RADIUS, DOT_y+DOT_RADIUS, fill="#ffcccc", outline="")
-
-
 
     for y in range(H_SQUARES):
         for x in range(W_SQUARES):
@@ -166,6 +168,15 @@ def refresh():
     locs = find_cool_locations(len(c4), row, col)
     paint(canvas_left, locs, colors=c4)
     row = locs[-1][1]+2
+
+    if len(c5) > W_SQUARES:
+        col = 0
+    else:
+        col = (W_SQUARES-len(c5))//2
+    locs = find_cool_locations(len(c5), row, col)
+    paint(canvas_left, locs, colors=c5)
+    row = locs[-1][1]+2
+
     master.after(100, refresh)
 
 
