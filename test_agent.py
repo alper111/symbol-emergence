@@ -25,12 +25,12 @@ rospy.sleep(1.0)
 agent = torobo.Torobo()
 agent.initialize()
 
-objects = ["white_ball", "red_ball", "yellow_ball"]
+objects = ["white_ball", "red_ball"]
 random_ranges = np.array([
     [0.0, 0.0, 0., 0.41, 0.20, 1.09],
     # [0.0, 0.80, 0., 0.85, -0.10, 1.09],
     # [0.20, 0.60, 0., 0.31, -0.10, 1.09],
-    [0.30, 0.80, 0., 0.7, -0.10, 1.09],
+    # [0.30, 0.80, 0., 0.7, -0.10, 1.09],
     [0.30, 0.80, 0., 0.7, -0.10, 1.09],
 ])
 
@@ -47,8 +47,8 @@ policy_network = models.MLP_gaussian([
     2*action_dim])
 
 value_network = models.ValueNetwork([obs_dim, hidden_dim, hidden_dim, 1])
-policy_network.load_state_dict(torch.load("save/ppo_3top_iyigiden/policy_net_last.ckpt"))
-value_network.load_state_dict(torch.load("save/ppo_3top_iyigiden/value_net_last.ckpt"))
+policy_network.load_state_dict(torch.load("save/ppo_movingred_450/policy_net.ckpt"))
+value_network.load_state_dict(torch.load("save/ppo_movingred_450/value_net.ckpt"))
 
 print("="*10+"POLICY NETWORK"+"="*10)
 print(policy_network)
