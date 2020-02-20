@@ -19,6 +19,7 @@ def discount(rewards):
 
 
 def act(env, agent, action, radius):
+    # TODO: actionı artık düzgün yapmam gerekiyor.
     white_pos = env.get_object_position("white_ball")
     w1 = white_pos + [1.17, np.pi, 0, 0]
     via = agent.create_via_points(w1, action, radius)
@@ -47,15 +48,15 @@ random_ranges = np.array([
 
 world = env.Environment(objects=objects, rng_ranges=random_ranges)
 episode = 5000
-rollout = 8
-action_dim = 1
-obs_dim = 2 * len(objects)
+batch_size = 128
+action_dim = 2
+obs_dim = 4 * len(objects)
 hidden_dim = 32
 
 policy_network = models.MLP_gaussian([obs_dim, hidden_dim, hidden_dim, hidden_dim, 2*action_dim])
 value_network = models.ValueNetwork([obs_dim, hidden_dim, hidden_dim, hidden_dim, 1])
 
-optim_policy = torch.optim.Adam(lr=0.0001, params=policy_network.parameters(), amsgrad=True)
+optim_policy = torch.optim.Adam(lr=0.001, params=policy_network.parameters(), amsgrad=True)
 optim_value = torch.optim.Adam(lr=0.01, params=value_network.parameters(), amsgrad=True)
 criterion = torch.nn.MSELoss(reduction="mean")
 
@@ -71,55 +72,57 @@ for epi in range(episode):
     actions = []
     observations = []
     it = 0
-
-    while it < rollout:
-        world.random()
+    world.random()
+    stationary = False
+    while not stationary and it < 1000:
         obs = torch.tensor(world.get_state(), dtype=torch.float)
         if (epi+1) % 10 == 0:
             with torch.no_grad():
-                print("TESTING WITH MEAN ACTION")
                 out = policy_network(obs)
                 action = out[..., :out.shape[-1]//2].detach()
                 logprob = policy_network.logprob(obs, action)
         else:
             action, logprob = policy_network.action(obs)
 
+        white_pos = world.get_object_position("white_ball")
+        skip = False
+        if white_pos[0] < 0.31 or white_pos[0] > 0.51 or white_pos[1] < -0.1 or white_pos[1] > 0.5:
+            skip = True
+
         if torch.isnan(action):
             print("got action nan.")
             exit()
-        start_time = rospy.get_time()
-        is_success = act(world, agent, action, 0.08)
-        agent.init_pose()
-        if not is_success:
-            print("white ball:", world.get_object_position("white_ball"))
-            print("Action failed.")
-            continue
 
-        actions.append(action)
-        observations.append(obs)
+        if not skip:
+            print("force uygulama kısmı")
+            # TODO
+            is_success = act(world, agent, action, 0.08)
+            agent.init_pose()
+            if not is_success:
+                print("white ball:", world.get_object_position("white_ball"))
+                print("Action failed.")
+                continue
+
+        rospy.sleep(0.001)
         stationary = world.is_stationary()
-        end_time = rospy.get_time()
-
-        while not stationary and (end_time - start_time) < 20.0:
-            rospy.sleep(0.02)
-            stationary = world.is_stationary()
-            end_time = rospy.get_time()
-        end_time = rospy.get_time()
-        obs = torch.tensor(world.get_state(), dtype=torch.float)
-        reward = world.get_reward() - 0.01 * (end_time - start_time)
+        reward = 0.01
 
         # bookkeeping
-        rewards.append(reward)
-        logprobs.append(logprob.sum())
+        if not skip:
+            rewards.append(reward)
+            logprobs.append(logprob.sum())
+            actions.append(action)
+            observations.append(obs)
         it += 1
 
-    if len(rewards) < 1:
-        print("Episode failed. No valid rollout.")
+    if len(actions) < 1:
+        print("Episode failed.")
         continue
 
     # reshaping
     rewards = torch.tensor(rewards, dtype=torch.float)
     cumrew = rewards.sum().item()
+    rewards = discount(rewards)  # TODO: generalized advantage estimation
     logprobs = torch.stack(logprobs)
     actions = torch.stack(actions)
     observations = torch.stack(observations)
@@ -149,28 +152,32 @@ for epi in range(episode):
             torch.save(value_network.state_dict(), "save/value_net_last.ckpt")
         np.save("save/rewards.npy", reward_history)
 
-        for k in range(1):
-            # optimize the policy network
-            optim_policy.zero_grad()
-            # if memory.size < 64:
-            #     old_s, old_a, old_r, old_logp, old_v = memory.sample_n(rollout)
-            # else:
-            #     old_s, old_a, old_r, old_logp, old_v = memory.sample_n(64)
-            old_s, old_a, old_r, old_logp, old_v = memory.peek_n(rollout, from_start=True)
-            logp = policy_network.logprob(old_s, old_a).sum(dim=-1)
-            ratio = torch.exp(logp - old_logp)
-            surr1 = ratio * (old_r - old_v)
-            surr2 = ratio.clamp(0.8, 1.2) * (old_r - old_v)
-            policy_loss = - torch.min(surr1, surr2).mean()
-            # policy_loss = -(logprobs * advantage).sum()
-            policy_loss.backward()
-            optim_policy.step()
+        policy_loss = torch.tensor(0.0)
+        if memory.size > batch_size:
+            for k in range(1):
+                # optimize the policy network
+                optim_policy.zero_grad()
+                old_s, old_a, old_r, old_logp, old_v = memory.sample_n(batch_size)
+                logp = policy_network.logprob(old_s, old_a).sum(dim=-1)
+                ratio = torch.exp(logp - old_logp)
+                surr1 = ratio * (old_r - old_v)
+                surr2 = ratio.clamp(0.8, 1.2) * (old_r - old_v)
+                policy_loss = - torch.min(surr1, surr2).mean()
+                # policy_loss = -(logprobs * advantage).sum()
+                policy_loss.backward()
+                # clip gradient to (-10, 10)
+                for p in policy_network.parameters():
+                    p.grad.data.clamp_(-10., 10.)
+                optim_policy.step()
 
         # rospy.loginfo("optimizing value net")
         # optimize the value network
         optim_value.zero_grad()
         value_loss = criterion(value_estimate, rewards)
         value_loss.backward()
+        # clip gradient (-10, 10)
+        for p in value_network.parameters():
+            p.grad.data.clamp_(-10., 10.)
         optim_value.step()
         print("Episode: %d, reward: %.3f, adv: %.3f, p loss: %.3f, v loss: %.3f, mem: %d"
               % (epi+1, cumrew, advantage.sum().item(), policy_loss.item(), value_loss.item(), memory.size))
