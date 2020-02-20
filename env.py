@@ -39,12 +39,13 @@ class Environment:
     def get_state(self):
         msg = self.get_model_states()
         indices = list(map(lambda x: msg.name.index(x), self.objects))
-        poses = np.zeros((self.num_objects, 2))
+        state = np.zeros((self.num_objects, 4))
 
         for i in range(self.num_objects):
             p = msg.pose[indices[i]]
-            poses[i] = [p.position.x, p.position.y]
-        return poses.reshape(-1)
+            v = msg.twist[indices[i]]
+            state[i] = [p.position.x, p.position.y, v.linear.x, v.linear.y]
+        return state.reshape(-1)
 
     def save(self, filename):
         dic = {"name": [], "position": [], "orientation": []}
@@ -106,8 +107,8 @@ class Environment:
     def is_stationary(self):
         msg = self.get_model_states()
         indices = list(map(lambda x: msg.name.index(x), self.objects))
-        if self.contacts[1] > 0:  # and self.contacts[2] > 0:
-            return True
+        # if self.contacts[1] > 0:  # and self.contacts[2] > 0:
+        #     return True
         for i, obj in enumerate(msg.twist):
             if i not in indices:
                 continue
