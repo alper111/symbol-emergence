@@ -113,10 +113,10 @@ class Environment:
             if i not in indices:
                 continue
 
-            if abs(obj.linear.x) > 1e-2:
+            if abs(obj.linear.x) > 1e-3:
                 return False
 
-            if abs(obj.linear.y) > 1e-2:
+            if abs(obj.linear.y) > 1e-3:
                 return False
 
         return True
