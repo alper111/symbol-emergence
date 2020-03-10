@@ -19,7 +19,7 @@ class MLP_gaussian(torch.nn.Module):
     def forward(self, x):
         out = self.model(x)
         dim = out.shape[-1]
-        out[..., :dim//2] = torch.tanh(out[..., :dim//2]) * np.pi
+        out[..., :dim//2] = torch.tanh(out[..., :dim//2]) * 5
         out[..., dim//2:] = torch.exp(out[..., dim//2:])
         return out
 
@@ -213,8 +213,6 @@ class Memory:
         self.states = []
         self.actions = []
         self.rewards = []
-        self.logprobs = []
-        self.values = []
         self.size = 0
         self.buffer_length = buffer_length
 
@@ -222,11 +220,9 @@ class Memory:
         del self.states[:]
         del self.actions[:]
         del self.rewards[:]
-        del self.logprobs[:]
-        del self.values[:]
         self.size = 0
 
-    def append(self, state, action, reward, logprob, value):
+    def append(self, state, action, reward):
         if self.size == self.buffer_length:
             # self.states = self.states[self.buffer_length//10:]
             # self.actions = self.actions[self.buffer_length//10:]
@@ -243,8 +239,6 @@ class Memory:
         self.states.append(state)
         self.actions.append(action)
         self.rewards.append(reward)
-        self.logprobs.append(logprob)
-        self.values.append(value)
         self.size += 1
 
     def peek_n(self, n, from_start=False):
@@ -263,9 +257,7 @@ class Memory:
         s = torch.stack([self.states[i] for i in idx])
         a = torch.stack([self.actions[i] for i in idx])
         r = torch.stack([self.rewards[i] for i in idx])
-        logp = torch.stack([self.logprobs[i] for i in idx])
-        v = torch.stack([self.values[i] for i in idx])
-        return (s, a, r, logp, v)
+        return (s, a, r)
 
     def get_all(self):
         idx = list(range(self.size))
