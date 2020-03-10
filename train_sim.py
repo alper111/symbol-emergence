@@ -180,7 +180,13 @@ for epi in range(args.e):
             p.grad.data.clamp_(-10., 10.)
         optim_value.step()
     print("Episode: %d, reward: %.3f, adv: %.3f, p loss: %.3f, v loss: %.3f, mem: %d"
-          % (epi+1, np.mean(reward_history[epi*args.r:(epi+1)*args.r]), adv.mean().item(), policy_loss.item(), value_loss.item(), memory.size))
+          % (
+              epi+1,
+              np.mean(reward_history[epi*args.r:(epi+1)*args.r]),
+              adv.mean().item(),
+              policy_loss.item(),
+              value_loss.item(),
+              memory.size))
     memory.clear()
 
 plt.plot(reward_history)
