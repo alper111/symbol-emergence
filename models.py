@@ -105,6 +105,17 @@ class PPOAgent:
         torch.save(self.policy.eval().cpu().state_dict(), pname)
         torch.save(self.value.eval().cpu().state_dict(), vname)
 
+    def load(self, path, ext=None):
+        pname = "policy"
+        vname = "value"
+        if ext:
+            pname = pname + ext + ".ckpt"
+            vname = vname + ext + ".ckpt"
+        pname = os.path.join(path, pname)
+        vname = os.path.join(path, vname)
+        self.policy.load_state_dict(torch.load(pname))
+        self.value.load_state_dict(torch.load(vname))
+
 
 class MLP_gaussian(torch.nn.Module):
     def __init__(self, layers, activation=torch.nn.ReLU()):
