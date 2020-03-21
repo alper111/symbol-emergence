@@ -36,7 +36,7 @@ class PPOAgent:
             m = torch.distributions.multinomial.Categorical(logits=out)
         else:
             dim = out.shape[-1]
-            mu = out[..., :dim//2]
+            mu = torch.tanh(out[..., :dim//2])
             logstd = out[..., dim//2:]
             std = torch.exp(logstd).clamp(1e-5, 2.0)
             m = torch.distributions.normal.Normal(mu, std)
