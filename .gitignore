@@ -140,3 +140,6 @@ out/*
 
 # vscode
 .vscode/*
+
+# macos stuff
+.DS_store
