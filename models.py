@@ -9,7 +9,7 @@ class PPOAgent:
         self.K = K
         self.batch_size = batch_size
         self.dst = dist
-        self.memory = Memory(buffer_length=-1)
+        self.memory = Memory(keys=["state", "action", "reward", "logprob", "value"], buffer_length=-1)
         self.eps = eps
         self.c_clip = c_clip
         self.c_v = c_v
@@ -60,7 +60,14 @@ class PPOAgent:
         return action, logprob
 
     def record(self, state, action, logprob, reward, value):
-        self.memory.append(state, action, logprob, reward, value)
+        dic = {
+            "state": state,
+            "action": action,
+            "reward": reward,
+            "logprob": logprob,
+            "value": value
+        }
+        self.memory.append(dic)
 
     def reset_memory(self):
         self.memory.clear()
@@ -71,9 +78,15 @@ class PPOAgent:
         eloss = 0.0
         for i in range(self.K):
             if self.batch_size == -1:
-                state, action, logprob, reward, value = self.memory.get_all()
+                res = self.memory.get_all()
             else:
-                state, action, logprob, reward, value = self.memory.sample_n(self.batch_size)
+                res = self.memory.sample_n(self.batch_size)
+
+            state = res["state"]
+            action = res["action"]
+            logprob = res["logprob"]
+            reward = res["reward"]
+            value = res["value"]
 
             reward = (reward - reward.mean()) / (reward.std() + 1e-5)
             v_bar = self.value(state).reshape(-1)
@@ -242,36 +255,25 @@ class ValueNetwork(torch.nn.Module):
 
 
 class Memory:
-    def __init__(self, buffer_length):
-        self.states = []
-        self.actions = []
-        self.logprobs = []
-        self.rewards = []
-        self.values = []
-        self.size = 0
+    def __init__(self, keys, buffer_length=-1):
+        self.buffer = {}
+        self.keys = keys
+        for key in keys:
+            self.buffer[key] = []
         self.buffer_length = buffer_length
+        self.size = 0
 
     def clear(self):
-        del self.states[:]
-        del self.actions[:]
-        del self.logprobs[:]
-        del self.rewards[:]
-        del self.values[:]
-        self.size = 0
+        for key in self.keys:
+            del self.buffer[key][:]
 
-    def append(self, state, action, logprob, reward, value):
+    def append(self, dic):
         if self.buffer_length != -1 and self.size == self.buffer_length:
-            self.states = self.states[1:]
-            self.actions = self.actions[1:]
-            self.logprobs = self.logprobs[1:]
-            self.rewards = self.rewards[1:]
-            self.values = self.values[1:]
+            for key in self.keys:
+                self.buffer[key] = self.buffer[key][1:]
             self.size -= 1
-        self.states.append(state)
-        self.actions.append(action)
-        self.logprobs.append(logprob)
-        self.rewards.append(reward)
-        self.values.append(value)
+        for key in self.keys:
+            self.buffer[key].append(dic[key])
         self.size += 1
 
     def peek_n(self, n, from_start=False):
@@ -287,12 +289,10 @@ class Memory:
         return self.get_by_idx(idx)
 
     def get_by_idx(self, idx):
-        s = torch.stack([self.states[i] for i in idx])
-        a = torch.stack([self.actions[i] for i in idx])
-        lp = torch.stack([self.logprobs[i] for i in idx])
-        r = torch.stack([self.rewards[i] for i in idx])
-        v = torch.stack([self.values[i] for i in idx])
-        return (s, a, lp, r, v)
+        res = {}
+        for key in self.keys:
+            res[key] = torch.stack([self.buffer[key][i] for i in idx])
+        return res
 
     def get_all(self):
         idx = list(range(self.size))
