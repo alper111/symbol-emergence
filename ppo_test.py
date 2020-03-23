@@ -5,7 +5,7 @@ import gym
 import numpy as np
 
 
-device = torch.device("cuda:0")
+device = torch.device("cuda:0") if torch.cuda.is_available() else False
 env = gym.make("CartPole-v1")
 render = False
 solved_reward = 200
@@ -96,10 +96,10 @@ while solved_counter < 10:
 
     # add to memory
     for i in range(observations.shape[0]):
-        agent.memory.append(observations[i], actions[i], logprobs[i], rewards[i], values[i])
+        agent.record(observations[i], actions[i], logprobs[i], rewards[i], values[i])
     np.save("save/rewards.npy", reward_history)
     if agent.memory.size >= update_iter:
         print("Episode: %d, reward: %d, it: %d" % (epi, cumrew, it))
         policy_loss, value_loss, entropy_loss = agent.update()
         print("p loss: %.3f, v loss: %.3f, e loss: %.3f" % (policy_loss, value_loss, entropy_loss))
-        agent.memory.clear()
+        agent.reset_memory()

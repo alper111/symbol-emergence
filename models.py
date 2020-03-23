@@ -266,6 +266,7 @@ class Memory:
     def clear(self):
         for key in self.keys:
             del self.buffer[key][:]
+        self.size = 0
 
     def append(self, dic):
         if self.buffer_length != -1 and self.size == self.buffer_length:
