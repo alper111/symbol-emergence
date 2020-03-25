@@ -19,13 +19,7 @@ c_ent = 0.01
 lr = 0.002
 hidden_dim = 64
 max_timesteps = 200
-
 obs_dim = utils.get_dim(env.observation_space.shape)
-
-action_dim = env.action_space.shape
-
-policy_network = []
-value_network = []
 # discrete action space
 if env.action_space.dtype == "int64":
     action_dim = env.action_space.n
@@ -99,7 +93,6 @@ while solved_counter < 10:
         agent.record(observations[i], actions[i], logprobs[i], rewards[i], values[i])
     np.save("save/rewards.npy", reward_history)
     if agent.memory.size >= update_iter:
-        print("Episode: %d, reward: %d, it: %d" % (epi, cumrew, it))
-        policy_loss, value_loss, entropy_loss = agent.update()
-        print("p loss: %.3f, v loss: %.3f, e loss: %.3f" % (policy_loss, value_loss, entropy_loss))
+        loss = agent.update()
         agent.reset_memory()
+        print("Episode: %d, reward: %d, it: %d, loss= %.3f" % (epi, cumrew, it, loss))
