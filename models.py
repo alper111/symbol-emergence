@@ -4,7 +4,7 @@ import os
 
 
 class PPOAgent:
-    def __init__(self, state_dim, hidden_dim, action_dim, dist, num_layers,  device, lr, K, batch_size,
+    def __init__(self, state_dim, hidden_dim, action_dim, dist, num_layers, device, lr, K, batch_size,
                  eps, c_clip, c_v, c_ent):
         self.K = K
         self.batch_size = batch_size
@@ -60,52 +60,46 @@ class PPOAgent:
         return action, logprob
 
     def record(self, state, action, logprob, reward, value):
-        dic = {
-            "state": state,
-            "action": action,
-            "reward": reward,
-            "logprob": logprob,
-            "value": value
-        }
+        dic = {"state": state, "action": action, "reward": reward, "logprob": logprob, "value": value}
         self.memory.append(dic)
 
     def reset_memory(self):
         self.memory.clear()
 
+    def loss(self, dic):
+        state = dic["state"]
+        action = dic["action"]
+        logprob = dic["logprob"]
+        reward = dic["reward"]
+        value = dic["value"]
+
+        reward = (reward - reward.mean()) / (reward.std() + 1e-5)
+        v_bar = self.value(state).reshape(-1)
+        adv = reward - value
+        new_logp, entropy = self.logprob(state, action)
+        ratio = torch.exp(new_logp - logprob)
+        surr1 = ratio * adv
+        surr2 = ratio.clamp(1.0 - self.eps, 1.0 + self.eps) * adv
+        policy_loss = - self.c_clip * torch.min(surr1, surr2)
+        value_loss = self.c_v * self.criterion(v_bar, reward)
+        entropy_loss = - self.c_ent * entropy
+        loss = (policy_loss + value_loss + entropy_loss).mean()
+        return loss
+
     def update(self):
-        ploss = 0.0
-        vloss = 0.0
-        eloss = 0.0
+        avg_loss = 0.0
         for i in range(self.K):
             if self.batch_size == -1:
                 res = self.memory.get_all()
             else:
                 res = self.memory.sample_n(self.batch_size)
 
-            state = res["state"]
-            action = res["action"]
-            logprob = res["logprob"]
-            reward = res["reward"]
-            value = res["value"]
-
-            reward = (reward - reward.mean()) / (reward.std() + 1e-5)
-            v_bar = self.value(state).reshape(-1)
-            adv = reward - value
-            new_logp, entropy = self.logprob(state, action)
-            ratio = torch.exp(new_logp - logprob)
-            surr1 = ratio * adv
-            surr2 = ratio.clamp(1.0 - self.eps, 1.0 + self.eps) * adv
-            policy_loss = - self.c_clip * torch.min(surr1, surr2)
-            value_loss = self.c_v * self.criterion(v_bar, reward)
-            entropy_loss = - self.c_ent * entropy
-            loss = (policy_loss + value_loss + entropy_loss).mean()
+            loss = self.loss(res)
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            ploss += policy_loss.data.mean()
-            vloss += value_loss.data.mean()
-            eloss += entropy_loss.data.mean()
-        return ploss/self.K, vloss/self.K, eloss/self.K
+            avg_loss += loss.item()
+        return avg_loss
 
     def save(self, path, ext=None):
         pname = "policy"
@@ -128,6 +122,94 @@ class PPOAgent:
         vname = os.path.join(path, vname)
         self.policy.load_state_dict(torch.load(pname))
         self.value.load_state_dict(torch.load(vname))
+
+
+class DQN:
+    def __init__(self, state_dim, hidden_dim, action_dim, num_layers, memory_size, lr, batch_size,
+                 eps, gamma, q_update, device):
+        self.action_dim = action_dim
+        self.batch_size = batch_size
+        self.memory = Memory(keys=["state", "action", "reward", "next_state", "terminal"], buffer_length=memory_size)
+        self.eps = eps
+        self.gamma = gamma
+        self.num_updates = 0
+        self.q_update = q_update
+
+        layer = [state_dim] + [hidden_dim] * num_layers + [action_dim]
+        self.Q = MLP(layer_info=layer, activation=torch.nn.ReLU(), std=None, normalization=None)
+        self.Q_target = MLP(layer_info=layer, activation=torch.nn.ReLU(), std=None, normalization=None)
+        self.Q_target.load_state_dict(self.Q.state_dict())
+        self.Q.to(device)
+        self.Q_target.to(device)
+
+        for p in self.Q_target.parameters():
+            p.requires_grad = False
+
+        self.optimizer = torch.optim.Adam(lr=lr, params=self.Q.parameters(), amsgrad=True)
+        self.criterion = torch.nn.MSELoss()
+
+    def action(self, x, epsgreedy=False):
+        q_values = self.Q(x)
+        if epsgreedy:
+            r = torch.rand(1)
+            if r < self.eps:
+                action = torch.randint(0, self.action_dim, (), device=x.device)
+            else:
+                action = q_values.argmax(dim=-1)
+        else:
+            action = q_values.argmax(dim=-1)
+        return action
+
+    def loss(self, dic):
+        state = dic["state"]
+        action = dic["action"]
+        reward = dic["reward"]
+        next_state = dic["next_state"]
+        terminal = dic["terminal"].squeeze()
+
+        pred = self.Q(state)[torch.arange(action.shape[0]), action]
+        nextval, _ = self.Q_target(next_state).max(dim=-1)
+        target = torch.zeros(pred.shape[0], device=pred.device)
+        term_idx = (terminal == True)
+        target[term_idx] = reward[term_idx].squeeze()
+        target[~term_idx] = self.gamma * nextval[~term_idx] + reward[~term_idx].squeeze()
+        # target = self.gamma * nextval + reward.squeeze()
+        return self.criterion(pred, target)
+
+    def record(self, state, action, reward, next_state, terminal):
+        dic = {"state": state, "action": action, "reward": reward, "next_state": next_state, "terminal": terminal}
+        self.memory.append(dic)
+
+    def reset_memory(self):
+        self.memory.clear()
+
+    def update(self):
+        dic = self.memory.sample_n(self.batch_size)
+        loss = self.loss(dic)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        self.num_updates += 1
+        if (self.num_updates % self.q_update) == 0:
+            self.Q_target.load_state_dict(self.Q.state_dict())
+        return loss.item()
+
+    def decay_epsilon(self, rate, final):
+        self.eps = max(self.eps*rate, final)
+
+    def save(self, path, ext=None):
+        name = "dqn"
+        if ext:
+            name = name + ext + ".ckpt"
+        name = os.path.join(path, name)
+        torch.save(self.Q.eval().cpu().state_dict(), name)
+
+    def load(self, path, ext=None):
+        name = "dqn"
+        if ext:
+            name = name + ext + ".ckpt"
+        name = os.path.join(path, name)
+        self.Q.load_state_dict(torch.load(name))
 
 
 class MLP_gaussian(torch.nn.Module):
