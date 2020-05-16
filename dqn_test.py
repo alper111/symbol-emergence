@@ -68,4 +68,5 @@ while solved_counter < 10:
 
     np.save("save/rewards.npy", reward_history)
     if epi % 50 == 0:
-        print("Episode: %d, reward: %d, it: %d, loss: %.3f, epsilon: %.3f, total updates: %d" % (epi, cumrew, it, avgloss/it, agent.eps, agent.num_updates))
+        print("Episode: %d, reward: %d, it: %d, loss: %.3f, epsilon: %.3f, total updates: %d" %
+              (epi, cumrew, it, avgloss/it, agent.eps, agent.num_updates))
