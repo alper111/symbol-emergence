@@ -15,6 +15,8 @@ from scipy.spatial.transform import Rotation
 
 
 class Torobo:
+    """Wrapper class for Torobo."""
+
     def __init__(self):
         self.MAX_VELOCITY = np.radians([1500, 150, 180, 180, 200, 200, 200])
         self.ACTION_SERVICE = "/torobo/left_arm_controller/follow_joint_trajectory"
@@ -31,15 +33,16 @@ class Torobo:
             FollowJointTrajectoryAction)
         self.action_client.wait_for_server()
 
-    """
-    Function for computing the forward kinematics of Torobo humanoid
-
-    Args:
-        joint_angles (list of float):
-    Returns:
-        (list of float): x, y, z, roll, pitch, yaw.
-    """
     def compute_fk(self, joint_angles):
+        """Compute the forward kinematics.
+
+        Args:
+            joint_angles (list):
+
+        Returns:
+            (list): x, y, z, roll, pitch, yaw.
+
+        """
         header = Header(0, rospy.Time.now(), "world")
         rs = RobotState()
         rs.joint_state.name = self.JOINT_NAMES
@@ -60,21 +63,23 @@ class Torobo:
             euler[1],
             euler[2]]
 
-    """Function for computing the inverse kinematics of Torobo humanoid.
-
-    Args:
-        joint_angles: initial joint angles as seed (list of floats)
-        x: x-axis coordinate (float)
-        y: y-axis coordinate (float)
-        z: z-axis coordinate (float)
-        roll: rotation around x-axis in radian (float)
-        pitch: rotation around y-axis in radian (float)
-        yaw: rotation around z-axis in radian (float)
-    Returns:
-        (list of float or int): List of joint angles if ik solution is found.
-            Otherwise, -31 is returned (the error code).
-    """
     def compute_ik(self, joint_angles, target):
+        """Compute the inverse kinematics.
+
+        Args:
+            joint_angles: initial joint angles as seed (list)
+            x: x-axis coordinate (float)
+            y: y-axis coordinate (float)
+            z: z-axis coordinate (float)
+            roll: rotation around x-axis in radian (float)
+            pitch: rotation around y-axis in radian (float)
+            yaw: rotation around z-axis in radian (float)
+
+        Returns:
+            (list or int): List of joint angles if ik solution is found.
+                Otherwise, -31 is returned (the error code).
+
+        """
         quaternion = Rotation.from_euler(
             "zyx",
             [
@@ -110,26 +115,19 @@ class Torobo:
         # todo: make this generic
         return ik_result.joint_state.position[4:11]
 
-    """Function for action to move the arm.
+    def follow_joint_trajectory(self, positions, times=None, velocities=None, accelerations=None, efforts=None):
+        """Move the arm in the joint trajectory.
 
-    Args:
-        action_client (actionlib.SimpleActionClient): SimpleActionClient.
-        joint_names (list of string): List of joint names.
-        positions (list of list of float): List of joint's goal positions(radian).
-        time_from_start (float): transition time from start
+        Args:
+            action_client (actionlib.SimpleActionClient): SimpleActionClient.
+            joint_names (list): List of joint names.
+            positions (list): List of joint's goal positions.
+            time_from_start (float): transition time from start
 
-    Returns:
-        none
-    """
-    def follow_joint_trajectory(
-        self,
-        positions,
-        times=None,
-        velocities=None,
-        accelerations=None,
-        efforts=None
-    ):
+        Returns:
+            None
 
+        """
         if times is None:
             joint_angles = np.array(self.get_joint_angles())
             difference = abs(joint_angles - positions[0])
@@ -182,16 +180,20 @@ class Torobo:
             rospy.loginfo("[result]: " + str(result))
         return state
 
-    """Given a cartesian via-points, this method creates a
-    path in the joint space with linear segments.
-
-    Args:
-        points (np.ndarray): Via-points. The array should be two dimensional
-    Returns:
-        (list of list of float): List of joint angles.
-        (bool): True if path is found. Otherwise, False.
-    """
     def create_cartesian_path(self, points):
+        """Create cartesian path from given points.
+
+        Given a cartesian via-points, this method creates a
+        path in the joint space with linear segments.
+
+        Args:
+            points (np.ndarray): Via-points. The array should be two dimensional
+
+        Returns:
+            (list): List of joint angles.
+            (bool): True if path is found. Otherwise, False.
+
+        """
         angles = self.get_joint_angles()
         path = []
         failed = False
@@ -205,32 +207,37 @@ class Torobo:
 
         return path, failed
 
-    """Given an angle, this method creates two via points which
-    can be used later on with create_cartesian_path method.
-
-    Args:
-        location (list of float): Center point.
-        angle (float):
-        radius (float):
-
-    Returns:
-        (list of float): via points.
-    """
     def create_via_points(self, location, angle, radius):
+        """Create via points with respect to a point.
+
+        Given an angle, this method creates two via points which
+        can be used later on with create_cartesian_path method.
+
+        Args:
+            location (list): Center point.
+            angle (float):
+            radius (float):
+
+        Returns:
+            (list): via points.
+
+        """
         x = location[0]
         y = location[1]
         w1 = [x+radius*np.cos(angle), y+radius*np.sin(angle)] + location[2:]
         return [w1, location]
 
-    """Moves robot to a pre-defined initial position from zero position.
 
-    Args:
-        none
-
-    Returns:
-        none
-    """
     def initialize(self):
+        """Move robot to a pre-defined initial position from zero position.
+
+        Args:
+            None
+
+        Returns:
+            None
+
+        """
         # angles = np.radians([
         #     [0, 0, 90, 0, 0, -30, 0],
         #     [120, 0, 90, 45, 0, -30, 0],
@@ -243,30 +250,33 @@ class Torobo:
             [120., 30., -20., 45., 0., 0., 0.]])
         self.follow_joint_trajectory(angles)
 
-    """Moves robot to a pre-defined initial position.
-
-    Args:
-        none
-
-    Returns:
-        none
-    """
     def init_pose(self):
+        """Move robot to a pre-defined initial position.
+
+        Args:
+            None
+
+        Returns:
+            None
+
+        """
         angles = np.radians([
             # [120, 90, 90, -45, -90, -30, 0]
             [120., 30., -20., 45., 0., 0., 0.]
         ])
         self.follow_joint_trajectory(angles)
 
-    """Moves robot to zero angle position from a pre-defined initial position.
 
-    Args:
-        none
-
-    Returns:
-        none
-    """
     def zero_pose(self):
+        """Move robot to zero angle position from a pre-defined initial position.
+
+        Args:
+            None
+
+        Returns:
+            None
+
+        """
         # angles = np.radians([
         #     [120, 0, 90, 45, 0, -30, 0],
         #     [0, 0, 90, 0, 0, -30, 0],
@@ -279,15 +289,16 @@ class Torobo:
             [0, 0, 0, 0, 0, 0, 0]])
         self.follow_joint_trajectory(angles)
 
-    """Get current joint angles.
-
-    Args:
-        none
-
-    Returns:
-        (list of float): Current joint angles.
-    """
     def get_joint_angles(self):
+        """Get current joint angles.
+
+        Args:
+            none
+
+        Returns:
+            (list): Current joint angles.
+
+        """
         msg = rospy.wait_for_message("/torobo/joint_states", JointState)
         joint_angles = msg.position[2:9]
         return joint_angles
