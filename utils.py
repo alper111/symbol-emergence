@@ -1,11 +1,11 @@
 import torch
 
 
-def discount(rewards):
+def discount(rewards, gamma):
     R = 0.0
     discounted_rewards = []
     for r in reversed(rewards):
-        R = r + 0.99 * R
+        R = r + gamma * R
         discounted_rewards.insert(0, R)
     discounted_rewards = torch.tensor(discounted_rewards, device=rewards.device)
     return discounted_rewards
