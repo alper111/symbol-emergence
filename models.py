@@ -6,6 +6,7 @@ import os
 class PPOAgent:
     def __init__(self, state_dim, hidden_dim, action_dim, dist, num_layers, device, lr, K, batch_size,
                  eps, c_clip, c_v, c_ent):
+        self.device = device
         self.K = K
         self.batch_size = batch_size
         self.dst = dist
@@ -26,8 +27,10 @@ class PPOAgent:
         self.value = MLP(layer_info=value_layer, activation=torch.nn.ReLU(), std=None, normalization=None)
         self.policy.to(device)
         self.value.to(device)
-        self.optimizer = torch.optim.Adam(lr=lr, params=[{"params": self.policy.parameters()},
-                                                         {"params": self.value.parameters()}], amsgrad=True)
+        self.optimizer = torch.optim.Adam(
+            lr=lr,
+            params=[{"params": self.policy.parameters()}, {"params": self.value.parameters()}],
+            amsgrad=True)
         self.criterion = torch.nn.MSELoss()
 
     def dist(self, x):
@@ -38,7 +41,7 @@ class PPOAgent:
             dim = out.shape[-1]
             mu = torch.tanh(out[..., :dim//2])
             logstd = out[..., dim//2:]
-            std = torch.exp(logstd).clamp(1e-5, 2.0)
+            std = 0.1 + 0.9 * torch.nn.functional.softplus(logstd)
             m = torch.distributions.normal.Normal(mu, std)
         return m
 
@@ -102,6 +105,8 @@ class PPOAgent:
         return avg_loss
 
     def save(self, path, ext=None):
+        if not os.path.exists(path):
+            os.makedirs(path)
         pname = "policy"
         vname = "value"
         if ext:
@@ -111,6 +116,8 @@ class PPOAgent:
         vname = os.path.join(path, vname)
         torch.save(self.policy.eval().cpu().state_dict(), pname)
         torch.save(self.value.eval().cpu().state_dict(), vname)
+        self.policy.train().to(self.device)
+        self.value.train().to(self.device)
 
     def load(self, path, ext=None):
         pname = "policy"
