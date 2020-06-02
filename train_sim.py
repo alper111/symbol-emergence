@@ -30,7 +30,7 @@ objects = ["white_ball"]
 random_ranges = np.array([[0.0, 0.80, 0., 0.40, -0.10, 1.09]])
 
 world = env.Environment(objects=objects, rng_ranges=random_ranges)
-action_dim = 1
+action_dim = 2
 obs_dim = 4 * len(objects)
 c_clip = 1.0
 c_v = 0.5
@@ -53,6 +53,8 @@ print("="*10+"VALUE NETWORK"+"="*10)
 print(agent.value)
 print("Training starts...")
 reward_history = []
+running_avg = []
+update_step = 0
 for epi in range(args.e):
     observations = []
     actions = []
@@ -61,20 +63,26 @@ for epi in range(args.e):
     world.random()
     stationary = False
     start_time = rospy.get_time()
-    while not stationary and it < 20:
+    hit = True
+    while not stationary and it < 100:
         white_pos = world.get_object_position("white_ball")
         skip = False
-        if white_pos[0] < 0.38 or white_pos[0] > 0.42:
+        if white_pos[0] < 0.37 or white_pos[0] > 0.43:
             skip = True
+            hit = True
 
-        if not skip:
+        if not skip and hit:
             obs = torch.tensor(world.get_state(), dtype=torch.float)
             observations.append(obs)
             action, logprob = agent.action(obs)
-            # [-1, 1] -> [-pi/2, pi/2]
-            action = action * (np.pi/2)
-            xf = np.cos(action.item())
-            yf = np.sin(action.item())
+            # clamp to [-1, 1], since it can get values outside this range
+            action.clamp_(-1., 1.)
+            # [-1, 1] -> [0, 5]
+            amplitude = (action[0]+1) * (5/2)
+            # [-1, 1] -> [-pi, pi]
+            angle = action[1] * np.pi
+            xf = amplitude * np.cos(angle.item())
+            yf = amplitude * np.sin(angle.item())
 
             if torch.isnan(action).any():
                 print("got action nan.")
@@ -86,12 +94,14 @@ for epi in range(args.e):
             actions.append(action)
             logprobs.append(logprob)
             it += 1
+            hit = False
         else:
             stationary = world.is_stationary()
 
     end_time = rospy.get_time()
-    reward = (end_time - start_time)
-    rewards = [reward] * it
+    # reward = (end_time - start_time)
+    # rewards = [reward] * it
+    rewards = [it] * it
 
     if len(actions) < 1:
         continue
@@ -109,14 +119,18 @@ for epi in range(args.e):
 
     # add to memory
     for i in range(observations.shape[0]):
-        agent.memory.append(observations[i], actions[i], logprobs[i], rewards[i], values[i])
+        agent.record(observations[i], actions[i], logprobs[i], rewards[i], values[i])
     np.save("rewards.npy", reward_history)
 
     print("Episode %d, reward: %.2f, it: %d, memory: %d" % (epi+1, cumrew, it, agent.memory.size))
     if agent.memory.size >= args.update_iter:
-        policy_loss, value_loss, entropy_loss = agent.update()
-        print("p loss: %.3f, v loss: %.3f, e loss: %.3f" % (policy_loss, value_loss, entropy_loss))
-        agent.memory.clear()
+        loss = agent.update()
+        agent.reset_memory()
+        print("loss: %.3f" % loss)
+
+        running_avg.append(np.mean(reward_history[update_step:]))
+        np.save("running_avg.npy", running_avg)
+        update_step = epi
         # last checkpoint for debugging
         with torch.no_grad():
             agent.save(".", ext="_last")
