@@ -24,27 +24,22 @@ class Environment:
         self.contacts = [0] * (self.num_objects)
         self.prev_state = None
 
-    def get_reward(self):
-        # white = np.array(self.get_object_position("white_ball"))
-        # red = np.array(self.get_object_position("red_ball"))
-        red_contacts = self.contacts[1]
-        # yellow_contacts = self.contacts[2]
-        if red_contacts > 0:  # and yellow_contacts > 0:
-            reward = 1.0
-        else:
-            reward = -1.0
-
+    def get_reward(self, arm_position):
+        target = self.prev_state[0][:2]
+        cube = self.get_object_position(self.objects[1])
+        distance_target = np.linalg.norm(target-cube, 2)
+        reward = - distance_target
         return reward
 
     def get_state(self):
         msg = self.get_model_states()
         indices = list(map(lambda x: msg.name.index(x), self.objects))
-        state = np.zeros((self.num_objects, 4))
+        state = np.zeros((self.num_objects, 2))
 
         for i in range(self.num_objects):
             p = msg.pose[indices[i]]
-            v = msg.twist[indices[i]]
-            state[i] = [p.position.x, p.position.y, v.linear.x, v.linear.y]
+            state[i] = [p.position.x, p.position.y]
+        state[0] = self.prev_state[0][:2]
         return state.reshape(-1)
 
     def save(self, filename):
@@ -73,11 +68,11 @@ class Environment:
 
     def random(self):
         self.contacts = [0] * self.num_objects
-        positions = self.get_state().reshape(-1, 2)
+        # positions = self.get_state().reshape(-1, 2)
         current = []
         proposed = []
-        for p in positions:
-            current.append(p)
+        # for p in positions:
+        #     current.append(p)
 
         for i in range(self.num_objects):
             valid = False
@@ -91,7 +86,6 @@ class Environment:
                         if np.linalg.norm(p[:2] - pos[:2]) < 0.1:
                             valid = False
                             break
-            # rospy.loginfo("{0} object is reset".format(i))
             current.append(pos)
             proposed.append(pos)
 
@@ -107,19 +101,28 @@ class Environment:
     def is_stationary(self):
         msg = self.get_model_states()
         indices = list(map(lambda x: msg.name.index(x), self.objects))
-        # if self.contacts[1] > 0:  # and self.contacts[2] > 0:
-        #     return True
         for i, obj in enumerate(msg.twist):
             if i not in indices:
                 continue
 
-            if abs(obj.linear.x) > 5e-3:
+            if abs(obj.linear.x) > 8e-3:
                 return False
 
-            if abs(obj.linear.y) > 5e-3:
+            if abs(obj.linear.y) > 8e-3:
                 return False
 
         return True
+
+    def is_terminal(self):
+        cube_pos = self.get_object_position(self.objects[1])
+        target_pos = self.prev_state[0][:2]
+        distance_target = np.linalg.norm(target_pos-cube_pos, 2)
+        if not ((np.array([0.31, -0.1]) < cube_pos).all() and (cube_pos < np.array([0.51, 0.5])).all()):
+            return True
+        if distance_target < 0.05:
+            return True
+
+        return False
 
     def get_model_states(self):
         msg = rospy.wait_for_message("/model_states", ModelStates)
