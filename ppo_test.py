@@ -6,19 +6,20 @@ import numpy as np
 
 
 device = torch.device("cuda:0") if torch.cuda.is_available() else False
-env = gym.make("CartPole-v1")
+env = gym.make("HalfCheetah-v2")
 render = False
-solved_reward = 200
+solved_reward = 1000
 K = 4
 batch_size = -1
 eps = 0.2
-update_iter = 2000
+update_iter = 10000
 c_clip = 1.0
 c_v = 0.5
+
 c_ent = 0.01
-lr = 0.002
-hidden_dim = 64
-max_timesteps = 200
+lr = 0.001
+hidden_dim = 256
+max_timesteps = 1000
 obs_dim = utils.get_dim(env.observation_space.shape)
 # discrete action space
 if env.action_space.dtype == "int64":
@@ -55,6 +56,8 @@ while solved_counter < 10:
         obs = flatten(obs)
     done = False
     for t in range(max_timesteps):
+        if render:
+            env.render()
         observations.append(obs)
         action, logprob = agent.action(obs)
         if dist == "gaussian":
@@ -78,7 +81,7 @@ while solved_counter < 10:
     logprobs = torch.stack(logprobs).detach()
     rewards = torch.tensor(rewards, dtype=torch.float, device=device)
     cumrew = rewards.sum().item()
-    rewards = utils.discount(rewards)
+    rewards = utils.discount(rewards, gamma=0.99)
     reward_history.append(cumrew)
     with torch.no_grad():
         values = agent.value(observations).reshape(-1)
@@ -96,3 +99,21 @@ while solved_counter < 10:
         loss = agent.update()
         agent.reset_memory()
         print("Episode: %d, reward: %d, it: %d, loss= %.3f" % (epi, cumrew, it, loss))
+
+
+obs = torch.tensor(env.reset(), dtype=torch.float, device=device)
+if len(env.observation_space.shape) > 1:
+    obs = flatten(obs)
+done = False
+while not done:
+    env.render()
+    action, logprob = agent.action(obs)
+    if dist == "gaussian":
+        action = action.cpu().numpy()
+    else:
+        action = action.item()
+    obs, reward, done, info = env.step(action)
+    obs = torch.tensor(obs, dtype=torch.float, device=device)
+    if len(env.observation_space.shape) > 1:
+        obs = flatten(obs)
+    it += 1
