@@ -1,197 +1,156 @@
+import os
 import rospy
 import torch
-import torobo
-import models
-import env
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+import torobo_wrapper
+import models
+import env
+import utils
 
 
-def discount(rewards):
-    R = 0.0
-    discounted_rewards = []
-    for r in rewards[::1]:
-        R = r + 0.99 * R
-        discounted_rewards.insert(0, R)
-    discounted_rewards = torch.tensor(discounted_rewards)
-    return discounted_rewards
+OUT_FOLDER = "out/ppo_1"
+if not os.path.exists(OUT_FOLDER):
+    os.makedirs(OUT_FOLDER)
+device = torch.device("cuda:0") if torch.cuda.is_available() else False
+episode = 20000
+K = 4
+batch_size = -1
+eps = 0.2
+update_iter = 2000
+c_clip = 1.0
+c_v = 0.5
+c_ent = 0.01
+lr = 0.002
+state_dim = 4+7
+hidden_dim = 128
+action_dim = 2
+max_timesteps = 200
 
-
-def act(env, agent, action, radius):
-    # TODO: actionı artık düzgün yapmam gerekiyor.
-    white_pos = env.get_object_position("white_ball")
-    w1 = white_pos + [1.17, np.pi, 0, 0]
-    via = agent.create_via_points(w1, action, radius)
-    ans, failed = agent.create_cartesian_path(np.array(via))
-    if not failed:
-        agent.follow_joint_trajectory(np.array(ans))
-        return True
-    else:
-        return False
-
+model = models.PPOAgent(state_dim=state_dim, hidden_dim=hidden_dim, action_dim=2*action_dim, dist="gaussian",
+                        num_layers=2, device=device, lr=lr, K=K, batch_size=batch_size, eps=eps, c_clip=c_clip,
+                        c_v=c_v, c_ent=c_ent)
 
 rospy.init_node("training_node", anonymous=True)
+rate = rospy.Rate(100)
 rospy.sleep(1.0)
-agent = torobo.Torobo()
-agent.initialize()
-memory = models.Memory(16)
+robot = torobo_wrapper.Torobo()
+rospy.sleep(1.0)
 
-objects = ["white_ball", "red_ball", "yellow_ball"]
+# INITIALIZE ARM POSITION
+robot.go(np.radians([90, 0, 0, 0, 0, -90, 0]))
+rospy.sleep(2)
+robot.go(np.radians([90, 45, 0, 45, 0, -90, 0]))
+rospy.sleep(2)
+# robot.go(np.radians([90, 45, 0, 45, 0, -30, 0]))
+# rospy.sleep(2)
+
+objects = ["target_plate", "small_cube"]
 random_ranges = np.array([
-    [0.0, 0.0, 0., 0.41, 0.20, 1.09],
-    # [0.0, 0.80, 0., 0.85, -0.10, 1.09],
-    # [0.20, 0.60, 0., 0.31, -0.10, 1.09],
-    [0.30, 0.80, 0., 0.7, -0.10, 1.09],
-    [0.0, 0.0, 0.0, 0.82, 0.40, 1.09],
+    [0.00, 0.00, 0., 0.4, 0.3, 1.125],
+    # [0.19, 0.60, 0., 0.32, -0.10, 1.140],
+    [0.19, 0.50, 0., 0.32, 0.0, 1.155],
+    # [0.00, 0.00, 0., 0.4, 0.1, 1.135],
 ])
 
+
 world = env.Environment(objects=objects, rng_ranges=random_ranges)
-episode = 5000
-batch_size = 128
-action_dim = 2
-obs_dim = 4 * len(objects)
-hidden_dim = 32
-
-policy_network = models.MLP_gaussian([obs_dim, hidden_dim, hidden_dim, hidden_dim, 2*action_dim])
-value_network = models.ValueNetwork([obs_dim, hidden_dim, hidden_dim, hidden_dim, 1])
-
-optim_policy = torch.optim.Adam(lr=0.001, params=policy_network.parameters(), amsgrad=True)
-optim_value = torch.optim.Adam(lr=0.01, params=value_network.parameters(), amsgrad=True)
-criterion = torch.nn.MSELoss(reduction="mean")
+rospy.sleep(0.5)
+# world.random()
 
 print("="*10+"POLICY NETWORK"+"="*10)
-print(policy_network)
+print(model.policy)
 print("="*10+"VALUE NETWORK"+"="*10)
-print(value_network)
+print(model.value)
 print("Training starts...")
 reward_history = []
 for epi in range(episode):
+    states = []
+    actions = []
     logprobs = []
     rewards = []
-    actions = []
-    observations = []
-    it = 0
     world.random()
-    stationary = False
-    while not stationary and it < 1000:
-        obs = torch.tensor(world.get_state(), dtype=torch.float)
-        if (epi+1) % 10 == 0:
-            with torch.no_grad():
-                out = policy_network(obs)
-                action = out[..., :out.shape[-1]//2].detach()
-                logprob = policy_network.logprob(obs, action)
-        else:
-            action, logprob = policy_network.action(obs)
-
-        white_pos = world.get_object_position("white_ball")
-        skip = False
-        if white_pos[0] < 0.31 or white_pos[0] > 0.51 or white_pos[1] < -0.1 or white_pos[1] > 0.5:
-            skip = True
-
-        if torch.isnan(action):
-            print("got action nan.")
-            exit()
-
-        if not skip:
-            print("force uygulama kısmı")
-            # TODO
-            is_success = act(world, agent, action, 0.08)
-            agent.init_pose()
-            if not is_success:
-                print("white ball:", world.get_object_position("white_ball"))
-                print("Action failed.")
-                continue
-
-        rospy.sleep(0.001)
-        stationary = world.is_stationary()
-        reward = 0.01
-
-        # bookkeeping
-        if not skip:
-            rewards.append(reward)
-            logprobs.append(logprob.sum())
-            actions.append(action)
-            observations.append(obs)
-        it += 1
-
-    if len(actions) < 1:
-        print("Episode failed.")
+    rospy.sleep(0.1)
+    cube_pos = world.get_object_position(objects[1])
+    cube_pos[1] = cube_pos[1] - 0.07
+    ##
+    robot.go(np.radians([90, 45, 0, 45, 0, -30, 0]))
+    rospy.sleep(2)
+    ##
+    action_aug = cube_pos + [1.17, np.pi, 0, 0]
+    angles = robot.compute_ik(robot.get_joint_angles(), action_aug)
+    if angles != -31:
+        robot.go(angles, time_from_start=2.0)
+        rospy.sleep(2.0)
+    else:
+        print("Skipping")
         continue
 
-    # reshaping
-    rewards = torch.tensor(rewards, dtype=torch.float)
-    cumrew = rewards.sum().item()
-    rewards = discount(rewards)  # TODO: generalized advantage estimation
-    logprobs = torch.stack(logprobs)
-    actions = torch.stack(actions)
-    observations = torch.stack(observations)
-    reward_history.append(cumrew)
+    for t in range(max_timesteps):
+        x = world.get_state().reshape(-1, 2)
+        tip_pos = np.array(robot.get_tip_pos()[:2])
+        joint_angles = robot.get_joint_angles()
+        x = (x - tip_pos).reshape(-1)
+        x = np.concatenate([x, joint_angles])
+        x = torch.tensor(x, dtype=torch.float, device=device)
+        states.append(x)
+        action, logprob = model.action(x)
+        action.clamp_(-1., 1.)
+        action *= 0.1
+        x_next = np.array(tip_pos) + action.cpu().numpy()
+        x_next[0] = np.clip(x_next[0], 0.32, 0.51)
+        x_next[1] = np.clip(x_next[1], -0.1, 0.5)
+        action_aug = x_next.tolist() + [1.17, np.pi, 0, 0]
+        angles = robot.compute_ik(robot.get_joint_angles(), action_aug)
+        if angles != -31:
+            robot.go(angles, time_from_start=2.0)
+            rate.sleep()
 
-    value_estimate = value_network(observations).reshape(-1)
-    if (torch.isnan(value_estimate)).any():
+        actions.append(action)
+        logprobs.append(logprob)
+        if world.is_terminal() or (t == max_timesteps-1):
+            reward = world.get_reward(arm_position=tip_pos)
+            rewards.append(reward)
+            break
+        else:
+            rewards.append(0.0)
+
+    # reshaping
+    states = torch.stack(states)
+    actions = torch.stack(actions)
+    logprobs = torch.stack(logprobs).detach()
+    rewards = torch.tensor(rewards, dtype=torch.float, device=device)
+    cumrew = rewards.sum().item()
+    rewards = utils.discount(rewards, gamma=0.99)
+    reward_history.append(cumrew)
+    with torch.no_grad():
+        values = model.value(states).reshape(-1)
+
+    if (torch.isnan(values)).any():
         print("got estimate nan.")
         exit()
-    advantage = (rewards - value_estimate).detach()
 
+    print("Episode: %d, reward: %.3f" % (epi+1, cumrew))
     # add to memory
-    if (epi+1) % 10 != 0:
-        with torch.no_grad():
-            for i in range(observations.shape[0]):
-                memory.append(
-                    observations[i],
-                    actions[i],
-                    rewards[i],
-                    logprobs[i].clone(),
-                    value_estimate[i].clone()
-                )
+    for i in range(states.shape[0]):
+        model.record(states[i], actions[i], logprobs[i], rewards[i], values[i])
+    np.save(os.path.join(OUT_FOLDER, "rewards.npy"), reward_history)
+    if model.memory.size >= update_iter:
+        loss = model.update()
+        model.reset_memory()
+        model.save(OUT_FOLDER, ext=str(epi+1))
+        print("Episode: %d, reward: %.3f, loss=%.3f" % (epi+1, cumrew, loss))
 
-        # last checkpoint for debugging
-        with torch.no_grad():
-            torch.save(policy_network.state_dict(), "save/policy_net_last.ckpt")
-            torch.save(value_network.state_dict(), "save/value_net_last.ckpt")
-        np.save("save/rewards.npy", reward_history)
+# RESET ARM POSITION
+robot.go(np.radians([90, 45, 0, 45, 0, -90, 0]))
+rospy.sleep(2)
+robot.go(np.radians([90, 0, 0, 0, 0, -90, 0]))
+rospy.sleep(2)
+robot.go(np.radians([0, 0, 0, 0, 0, 0, 0]))
+rospy.sleep(2)
 
-        policy_loss = torch.tensor(0.0)
-        if memory.size > batch_size:
-            for k in range(1):
-                # optimize the policy network
-                optim_policy.zero_grad()
-                old_s, old_a, old_r, old_logp, old_v = memory.sample_n(batch_size)
-                logp = policy_network.logprob(old_s, old_a).sum(dim=-1)
-                ratio = torch.exp(logp - old_logp)
-                surr1 = ratio * (old_r - old_v)
-                surr2 = ratio.clamp(0.8, 1.2) * (old_r - old_v)
-                policy_loss = - torch.min(surr1, surr2).mean()
-                # policy_loss = -(logprobs * advantage).sum()
-                policy_loss.backward()
-                # clip gradient to (-10, 10)
-                for p in policy_network.parameters():
-                    p.grad.data.clamp_(-10., 10.)
-                optim_policy.step()
-
-        # rospy.loginfo("optimizing value net")
-        # optimize the value network
-        optim_value.zero_grad()
-        value_loss = criterion(value_estimate, rewards)
-        value_loss.backward()
-        # clip gradient (-10, 10)
-        for p in value_network.parameters():
-            p.grad.data.clamp_(-10., 10.)
-        optim_value.step()
-        print("Episode: %d, reward: %.3f, adv: %.3f, p loss: %.3f, v loss: %.3f, mem: %d"
-              % (epi+1, cumrew, advantage.sum().item(), policy_loss.item(), value_loss.item(), memory.size))
-
-    else:
-        # save models
-        if (epi+1) % 50 == 0:
-            with torch.no_grad():
-                torch.save(policy_network.state_dict(), "save/policy_net_{0}.ckpt".format(epi+1))
-                torch.save(value_network.state_dict(), "save/value_net_{0}.ckpt".format(epi+1))
-        print("Episode: %d, reward: %.3f, adv: %.3f" % (epi+1, cumrew, advantage.sum().item()))
-
-agent.zero_pose()
 plt.plot(reward_history)
-pp = PdfPages("save/reward.pdf")
+pp = PdfPages(os.path.join(OUT_FOLDER, "reward.pdf"))
 pp.savefig()
 pp.close()
