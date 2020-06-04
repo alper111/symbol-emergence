@@ -23,8 +23,8 @@ class PPOAgent:
         policy_layer = [state_dim] + [hidden_dim] * num_layers + [action_dim]
         value_layer = [state_dim] + [hidden_dim] * num_layers + [1]
 
-        self.policy = MLP(layer_info=policy_layer, activation=torch.nn.ReLU(), std=None, normalization=None)
-        self.value = MLP(layer_info=value_layer, activation=torch.nn.ReLU(), std=None, normalization=None)
+        self.policy = MLP(layer_info=policy_layer)
+        self.value = MLP(layer_info=value_layer)
         self.policy.to(device)
         self.value.to(device)
         self.optimizer = torch.optim.Adam(
@@ -149,7 +149,7 @@ class PGAgent:
 
         policy_layer = [state_dim] + [hidden_dim] * num_layers + [action_dim]
 
-        self.policy = MLP(layer_info=policy_layer, activation=torch.nn.ReLU(), std=None, normalization=None)
+        self.policy = MLP(layer_info=policy_layer)
         self.policy.to(device)
         self.optimizer = torch.optim.Adam(lr=lr, params=self.policy.parameters(), amsgrad=True)
 
