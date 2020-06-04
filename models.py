@@ -54,9 +54,14 @@ class PPOAgent:
             entropy = entropy.sum(dim=-1)
         return logprob, entropy
 
-    def action(self, x):
+    def action(self, x, std=True):
         m = self.dist(x)
-        action = m.sample()
+        if std:
+            action = m.sample()
+        else:
+            with torch.no_grad():
+                out = self.policy(x)
+                action = torch.tanh(out[..., :out.shape[-1]//2])
         logprob = m.log_prob(action)
         if self.multivariate:
             logprob = logprob.sum(dim=-1)
@@ -129,6 +134,101 @@ class PPOAgent:
         vname = os.path.join(path, vname)
         self.policy.load_state_dict(torch.load(pname))
         self.value.load_state_dict(torch.load(vname))
+
+
+class PGAgent:
+    def __init__(self, state_dim, hidden_dim, action_dim, dist, num_layers, device, lr, batch_size):
+        self.device = device
+        self.batch_size = batch_size
+        self.dst = dist
+        self.memory = Memory(keys=["logprob", "reward"], buffer_length=-1)
+        if self.dst == "gaussian" and action_dim > 1:
+            self.multivariate = True
+        else:
+            self.multivariate = False
+
+        policy_layer = [state_dim] + [hidden_dim] * num_layers + [action_dim]
+
+        self.policy = MLP(layer_info=policy_layer, activation=torch.nn.ReLU(), std=None, normalization=None)
+        self.policy.to(device)
+        self.optimizer = torch.optim.Adam(lr=lr, params=self.policy.parameters(), amsgrad=True)
+
+    def dist(self, x):
+        out = self.policy(x)
+        if self.dst == "categorical":
+            m = torch.distributions.multinomial.Categorical(logits=out)
+        else:
+            dim = out.shape[-1]
+            mu = torch.tanh(out[..., :dim//2])
+            logstd = out[..., dim//2:]
+            std = 0.1 + 0.9 * torch.nn.functional.softplus(logstd)
+            m = torch.distributions.normal.Normal(mu, std)
+        return m
+
+    def logprob(self, s, a):
+        m = self.dist(s)
+        logprob = m.log_prob(a)
+        if self.multivariate:
+            logprob = logprob.sum(dim=-1)
+        return logprob
+
+    def action(self, x, std=True):
+        m = self.dist(x)
+        if std:
+            action = m.sample()
+        else:
+            with torch.no_grad():
+                out = self.policy(x)
+                action = torch.tanh(out[..., :out.shape[-1]//2])
+        logprob = m.log_prob(action)
+        if self.multivariate:
+            logprob = logprob.sum(dim=-1)
+        return action, logprob
+
+    def record(self, logprob, reward):
+        dic = {"logprob": logprob, "reward": reward}
+        self.memory.append(dic)
+
+    def reset_memory(self):
+        self.memory.clear()
+
+    def loss(self, dic):
+        logprob = dic["logprob"]
+        reward = dic["reward"]
+        reward = (reward - reward.mean()) / (reward.std() + 1e-5)
+        loss = -reward * logprob
+        return loss.mean()
+
+    def update(self):
+        avg_loss = 0.0
+        if self.batch_size == -1:
+            res = self.memory.get_all()
+        else:
+            res = self.memory.sample_n(self.batch_size)
+
+        loss = self.loss(res)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        avg_loss += loss.item()
+        return avg_loss
+
+    def save(self, path, ext=None):
+        if not os.path.exists(path):
+            os.makedirs(path)
+        pname = "policy"
+        if ext:
+            pname = pname + ext + ".ckpt"
+        pname = os.path.join(path, pname)
+        torch.save(self.policy.eval().cpu().state_dict(), pname)
+        self.policy.train().to(self.device)
+
+    def load(self, path, ext=None):
+        pname = "policy"
+        if ext:
+            pname = pname + ext + ".ckpt"
+        pname = os.path.join(path, pname)
+        self.policy.load_state_dict(torch.load(pname))
 
 
 class DQN:
