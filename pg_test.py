@@ -5,17 +5,18 @@ import gym
 import numpy as np
 
 
-# device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-device = torch.device("cpu")
-env = gym.make("HalfCheetah-v2")
+device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+# device = torch.device("cpu")
+env = gym.make("FetchPush-v1", reward_type="dense")
 render = False
-solved_reward = 200
+solved_reward = 0
 rollout = 100
 batch_size = -1
 lr = 0.001
 hidden_dim = 256
-max_timesteps = 200
-obs_dim = utils.get_dim(env.observation_space.shape)
+max_timesteps = 50
+obs_dim = utils.get_dim(env.observation_space["observation"].shape)
+flatten_on = True if len(env.observation_space["observation"].shape) > 1 else False
 # discrete action space
 if env.action_space.dtype == "int64":
     action_dim = env.action_space.n
@@ -28,7 +29,7 @@ else:
 agent = models.PGAgent(obs_dim, hidden_dim, action_dim, dist, 2, device, lr, batch_size)
 
 
-if len(env.observation_space.shape) > 1:
+if flatten_on:
     flatten = models.Flatten([-1, -2, -3])
 
 print("="*10+"POLICY NETWORK"+"="*10)
@@ -43,7 +44,7 @@ while solved_counter < 10:
     rewards = []
     it = 0
     obs = torch.tensor(env.reset(), dtype=torch.float, device=device)
-    if len(env.observation_space.shape) > 1:
+    if flatten_on:
         obs = flatten(obs)
     done = False
     for t in range(max_timesteps):
@@ -56,7 +57,7 @@ while solved_counter < 10:
             action = action.item()
         obs, reward, done, info = env.step(action)
         obs = torch.tensor(obs, dtype=torch.float, device=device)
-        if len(env.observation_space.shape) > 1:
+        if flatten_on:
             obs = flatten(obs)
         logprobs.append(logprob)
         rewards.append(reward)
@@ -87,7 +88,7 @@ while solved_counter < 10:
 
 
 obs = torch.tensor(env.reset(), dtype=torch.float, device=device)
-if len(env.observation_space.shape) > 1:
+if flatten_on:
     obs = flatten(obs)
 done = False
 while not done:
@@ -99,6 +100,6 @@ while not done:
         action = action.item()
     obs, reward, done, info = env.step(action)
     obs = torch.tensor(obs, dtype=torch.float, device=device)
-    if len(env.observation_space.shape) > 1:
+    if flatten_on:
         obs = flatten(obs)
     it += 1
