@@ -112,7 +112,7 @@ for epi in range(args.e):
     logprobs = torch.stack(logprobs).detach()
     rewards = torch.tensor(rewards, dtype=torch.float)
     cumrew = rewards[0].item()
-    rewards = utils.discount(rewards)
+    rewards = utils.discount(rewards, gamma=0.99)
     reward_history.append(cumrew)
     with torch.no_grad():
         values = agent.value(observations).reshape(-1)

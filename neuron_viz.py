@@ -32,7 +32,7 @@ def find_cool_locations(num_points, start_row, start_col):
     row = start_row
     col = start_col
     locs = []
-    for i in range(num_points):
+    for _ in range(num_points):
         locs.append([col, row])
         col += 1
         if col == W_SQUARES:

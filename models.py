@@ -41,7 +41,7 @@ class PPOAgent:
             dim = out.shape[-1]
             mu = torch.tanh(out[..., :dim//2])
             logstd = out[..., dim//2:]
-            std = 0.1 + 0.9 * torch.nn.functional.softplus(logstd)
+            std = 0.2 + torch.nn.functional.softplus(logstd)
             m = torch.distributions.normal.Normal(mu, std)
         return m
 
@@ -243,8 +243,8 @@ class DQN:
         self.q_update = q_update
 
         layer = [state_dim] + [hidden_dim] * num_layers + [action_dim]
-        self.Q = MLP(layer_info=layer, activation=torch.nn.ReLU(), std=None, normalization=None)
-        self.Q_target = MLP(layer_info=layer, activation=torch.nn.ReLU(), std=None, normalization=None)
+        self.Q = MLP(layer_info=layer)
+        self.Q_target = MLP(layer_info=layer)
         self.Q_target.load_state_dict(self.Q.state_dict())
         self.Q.to(device)
         self.Q_target.to(device)
