@@ -1,5 +1,4 @@
 import rospy
-import pickle
 import numpy as np
 from geometry_msgs.msg import Pose
 from gazebo_msgs.msg import ModelState, ModelStates
@@ -17,7 +16,7 @@ class Environment:
         self.rng_ranges = rng_ranges
         self.prev_state = None
 
-    def get_reward(self, arm_position):
+    def get_reward(self):
         target = self.prev_state[0][:2]
         cube = self.get_object_position(self.objects[1])
         distance_target = np.linalg.norm(target-cube, 2)
@@ -29,12 +28,14 @@ class Environment:
     def get_state(self):
         msg = self.get_model_states()
         indices = list(map(lambda x: msg.name.index(x), self.objects))
-        state = np.zeros((self.num_objects, 2))
+        state = np.zeros((self.num_objects, 7))
 
         for i in range(self.num_objects):
             p = msg.pose[indices[i]]
-            state[i] = [p.position.x, p.position.y]
-        state[0] = self.prev_state[0][:2]
+            state[i] = [p.position.x, p.position.y, p.position.z,
+                        p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w]
+        # make target static
+        state[0] = self.prev_state[0][:7]
         return state.reshape(-1)
 
     def save(self, filename):
@@ -63,7 +64,7 @@ class Environment:
             current.append(pos)
             proposed.append(pos)
 
-        self.prev_state = proposed
+        self.prev_state = proposed.copy()
         for i, pos in enumerate(proposed):
             self.set_model_state(self.objects[i], pos, [0, 0, 0, 1])
 
@@ -72,7 +73,7 @@ class Environment:
             self.set_model_state(self.objects[i], pos, [0, 0, 0, 1])
 
     def is_terminal(self):
-        cube_pos = self.get_object_position(self.objects[1])
+        cube_pos = self.get_object_position(self.objects[1])[:2]
         cube_limits = self.rng_ranges[self.objects[1]]
         target_pos = self.prev_state[0][:2]
         distance_target = np.linalg.norm(target_pos-cube_pos, 2)
@@ -91,7 +92,8 @@ class Environment:
         msg = self.get_model_states()
         idx = msg.name.index(name)
         position = msg.pose[idx].position
-        return [position.x, position.y]
+        orientation = msg.pose[idx].orientation
+        return [position.x, position.y, position.z, orientation.x, orientation.y, orientation.z, orientation.w]
 
     def set_model_state(self, name, pos, quat):
         msg = ModelState()
