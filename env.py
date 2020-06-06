@@ -14,11 +14,11 @@ class Environment:
         self.objects = objects
         self.num_objects = len(objects)
         self.rng_ranges = rng_ranges
-        self.prev_state = None
+        self.prev_positions = None
 
     def get_reward(self):
-        target = self.prev_state[0][:2]
-        cube = self.get_object_position(self.objects[1])
+        target = self.prev_positions[0][:2]
+        cube = self.get_object_position(self.objects[1])[:2]
         distance_target = np.linalg.norm(target-cube, 2)
         reward = - distance_target
         if not ((np.array([0.31, -0.1]) < cube).all() and (cube < np.array([0.51, 0.5])).all()):
@@ -35,7 +35,7 @@ class Environment:
             state[i] = [p.position.x, p.position.y, p.position.z,
                         p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w]
         # make target static
-        state[0] = self.prev_state[0][:7]
+        state[0][:3] = self.prev_positions[0]
         return state.reshape(-1)
 
     def save(self, filename):
@@ -64,18 +64,18 @@ class Environment:
             current.append(pos)
             proposed.append(pos)
 
-        self.prev_state = proposed.copy()
+        self.prev_positions = proposed.copy()
         for i, pos in enumerate(proposed):
             self.set_model_state(self.objects[i], pos, [0, 0, 0, 1])
 
     def load_prev_state(self):
-        for i, pos in enumerate(self.prev_state):
+        for i, pos in enumerate(self.prev_positions):
             self.set_model_state(self.objects[i], pos, [0, 0, 0, 1])
 
     def is_terminal(self):
         cube_pos = self.get_object_position(self.objects[1])[:2]
         cube_limits = self.rng_ranges[self.objects[1]]
-        target_pos = self.prev_state[0][:2]
+        target_pos = self.prev_positions[0][:2]
         distance_target = np.linalg.norm(target_pos-cube_pos, 2)
         if not ((cube_limits[:2, 0] < cube_pos).all() and (cube_pos < cube_limits[:2, 1]).all()):
             return True
