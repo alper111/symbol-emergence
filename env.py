@@ -7,10 +7,14 @@ from gazebo_msgs.msg import ModelState, ModelStates
 class Environment:
 
     def __init__(self, objects, rng_ranges=None):
-        self.publisher = rospy.Publisher(
-            "/gazebo/set_model_state",
-            ModelState,
-            queue_size=10)
+        """Tabletop environment wrapper.
+
+        Arguments:
+            objects (list of string): Names of objects.
+            rng_ranges (dictionary): Defines the random generation
+                ranges of objects.
+        """
+        self.publisher = rospy.Publisher("/gazebo/set_model_state", ModelState, queue_size=10)
         self.objects = objects
         self.num_objects = len(objects)
         self.rng_ranges = rng_ranges
@@ -21,8 +25,6 @@ class Environment:
         cube = self.get_object_position(self.objects[1])[:2]
         distance_target = np.linalg.norm(target-cube, 2)
         reward = - distance_target
-        if not ((np.array([0.31, -0.1]) < cube).all() and (cube < np.array([0.51, 0.5])).all()):
-            reward += -100.0
         return reward
 
     def get_state(self):
