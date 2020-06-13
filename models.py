@@ -1,16 +1,54 @@
+"""Several reinforcement learning algorithms."""
 import torch
 import math
 import os
 
 
 class PPOAgent:
-    def __init__(self, state_dim, hidden_dim, action_dim, dist, num_layers, device, lr, K, batch_size,
-                 eps, c_clip, c_v, c_ent):
+    """Proximal policy optimization method."""
+
+    def __init__(self, state_dim, hidden_dim, action_dim, dist, num_layers, device, lr_p, lr_v, K,
+                 batch_size, eps, c_clip, c_v, c_ent):
+        """
+        Initialize a PPO agent.
+
+        Parameters
+        ----------
+        state_dim : int
+            State dimension (input dimension).
+        hidden_dim : int
+            Hidden dimension of MLP layers.
+        action_dim : int
+            Action dimension.
+        dist : {"gaussian", "categorical"}
+            Distribution used to represent the policy output.
+        num_layers : int
+            Number of layers in MLP.
+        device : torch.device
+            Device of MLP parameters and other parameters.
+        lr_p : float
+            Learning rate for policy network.
+        lr_v : float
+            Learning rate for value network.
+        K : int
+            Number of optimization steps for each update iteration. This is
+            same for both policy network and value network.
+        batch_size : int
+            Batch size. If -1, full batch is used.
+        eps : float
+            Clipping parameter of PPO.
+        c_clip : float
+            Policy loss coefficient.
+        c_v : float
+            Value loss coefficient.
+        c_ent : float
+            Entropy loss coefficient.
+        """
         self.device = device
         self.K = K
         self.batch_size = batch_size
         self.dst = dist
-        self.memory = Memory(keys=["state", "action", "reward", "logprob", "value"], buffer_length=-1)
+        self.memory = Memory(keys=["state", "action", "reward", "logprob", "adv"], buffer_length=-1)
         self.eps = eps
         self.c_clip = c_clip
         self.c_v = c_v
@@ -27,25 +65,58 @@ class PPOAgent:
         self.value = MLP(layer_info=value_layer)
         self.policy.to(device)
         self.value.to(device)
+
+        log_std = -0.5 * torch.ones(action_dim, dtype=torch.float, device=device)
+        self.log_std = torch.nn.Parameter(log_std)
+
         self.optimizer = torch.optim.Adam(
-            lr=lr,
-            params=[{"params": self.policy.parameters()}, {"params": self.value.parameters()}],
+            params=[
+                {"params": self.policy.parameters(), "lr": lr_p},
+                {"params": self.log_std, "lr": lr_p},
+                {"params": self.value.parameters(), "lr": lr_v}],
             amsgrad=True)
         self.criterion = torch.nn.MSELoss()
 
     def dist(self, x):
+        """
+        Policy output as a distribution for a given state.
+
+        Parameters
+        ----------
+        x : torch.tensor
+            State.
+
+        Returns
+        -------
+        m : torch.distribution
+            Policy output as a distribution.
+        """
         out = self.policy(x)
         if self.dst == "categorical":
             m = torch.distributions.multinomial.Categorical(logits=out)
         else:
-            dim = out.shape[-1]
-            mu = torch.tanh(out[..., :dim//2])
-            logstd = out[..., dim//2:]
-            std = 0.2 + torch.nn.functional.softplus(logstd)
-            m = torch.distributions.normal.Normal(mu, std)
+            std = torch.exp(self.log_std)
+            m = torch.distributions.normal.Normal(out, std)
         return m
 
     def logprob(self, s, a):
+        """
+        Log probability of an action for a given state with the current policy.
+
+        Parameters
+        ----------
+        s : torch.tensor
+            State.
+        a : torch.tensor
+            Action.
+
+        Returns
+        -------
+        logprob : torch.tensor
+            Log probability.
+        entropy : torch.tensor
+            Entropy.
+        """
         m = self.dist(s)
         logprob = m.log_prob(a)
         entropy = m.entropy()
@@ -55,6 +126,24 @@ class PPOAgent:
         return logprob, entropy
 
     def action(self, x, std=True):
+        """
+        Sample action from the current policy.
+
+        Parameters
+        ----------
+        x : torch.tensor
+            State.
+        std : bool, optional.
+            If False, then the mean action will be sampled.
+
+        Returns
+        -------
+        action : torch.tensor
+            Sampled action.
+        logprob : torch.tensor
+            Log probability of the sampled action with the current policy and
+            state.
+        """
         m = self.dist(x)
         if std:
             action = m.sample()
@@ -67,36 +156,95 @@ class PPOAgent:
             logprob = logprob.sum(dim=-1)
         return action, logprob
 
-    def record(self, state, action, logprob, reward, value):
-        dic = {"state": state, "action": action, "reward": reward, "logprob": logprob, "value": value}
+    def record(self, state, action, logprob, reward, adv):
+        """
+        Append an experience to the memory.
+
+        Parameters
+        ----------
+        state : torch.tensor
+            State.
+        action : torch.tensor
+            Action.
+        logprob : torch.tensor
+            Log probability.
+        reward : torch.tensor
+            Reward. This is expected to be discounted.
+        adv : torch.tensor
+            Advantage.
+
+        Returns
+        -------
+        None
+        """
+        dic = {"state": state, "action": action, "reward": reward, "logprob": logprob, "adv": adv}
         self.memory.append(dic)
 
     def reset_memory(self):
+        """
+        Clear all experiences from the memory.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
         self.memory.clear()
 
     def loss(self, dic):
+        """
+        Calculate PPO loss.
+
+        Parameters
+        ----------
+        dic : dict
+            This should contain state, action, logprob, reward, and adv.
+
+        Returns
+        -------
+        loss : torch.tensor
+            PPO loss value.
+        """
         state = dic["state"]
         action = dic["action"]
         logprob = dic["logprob"]
         reward = dic["reward"]
-        value = dic["value"]
+        adv = dic["adv"]
 
-        reward = (reward - reward.mean()) / (reward.std() + 1e-5)
-        v_bar = self.value(state).reshape(-1)
-        adv = reward - value
+        # policy loss
+        adv = (adv - adv.mean()) / (adv.std() + 1e-5)
         new_logp, entropy = self.logprob(state, action)
         ratio = torch.exp(new_logp - logprob)
         surr1 = ratio * adv
         surr2 = ratio.clamp(1.0 - self.eps, 1.0 + self.eps) * adv
         policy_loss = - self.c_clip * torch.min(surr1, surr2)
+        # value loss
+        v_bar = self.value(state).reshape(-1)
         value_loss = self.c_v * self.criterion(v_bar, reward)
+        # entropy loss
         entropy_loss = - self.c_ent * entropy
+        # total loss
         loss = (policy_loss + value_loss + entropy_loss).mean()
         return loss
 
     def update(self):
+        """
+        Perform a PPO update.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        avg_loss : torch.tensor
+            Total loss for this update.
+        """
         avg_loss = 0.0
-        for i in range(self.K):
+        for _ in range(self.K):
             if self.batch_size == -1:
                 res = self.memory.get_all()
             else:
@@ -110,6 +258,22 @@ class PPOAgent:
         return avg_loss
 
     def save(self, path, ext=None):
+        """
+        Save policy and value networks.
+
+        Parameters
+        ----------
+        path : str
+            Save folder. If the path does not exist, a new folder created
+            recursively.
+        ext : str, optional
+            Extension of the save name. This is useful for saving multiple
+            models at several epochs.
+
+        Returns
+        -------
+        None
+        """
         if not os.path.exists(path):
             os.makedirs(path)
         pname = "policy"
@@ -125,6 +289,20 @@ class PPOAgent:
         self.value.train().to(self.device)
 
     def load(self, path, ext=None):
+        """
+        Load policy and value networks.
+
+        Parameters
+        ----------
+        path : str
+            Path of the model folder.
+        ext : str
+            Name extension.
+
+        Returns
+        -------
+        None
+        """
         pname = "policy"
         vname = "value"
         if ext:
@@ -161,7 +339,7 @@ class PGAgent:
             dim = out.shape[-1]
             mu = torch.tanh(out[..., :dim//2])
             logstd = out[..., dim//2:]
-            std = 0.1 + 0.9 * torch.nn.functional.softplus(logstd)
+            std = 0.2 + torch.nn.functional.softplus(logstd)
             m = torch.distributions.normal.Normal(mu, std)
         return m
 
@@ -403,45 +581,6 @@ class MLP_categorical(torch.nn.Module):
     def entropy(self, x):
         m = self.dist(x)
         return m.entropy()
-
-
-class QNetwork(torch.nn.Module):
-    def __init__(self, state_dim, action_dim, layers, activation=torch.nn.ReLU()):
-        super(QNetwork, self).__init__()
-        self.state_proj = torch.nn.Linear(in_features=state_dim, out_features=layers[0]//2)
-        self.action_proj = torch.nn.Linear(in_features=action_dim, out_features=layers[0]//2)
-
-        model = []
-        in_dim = layers[0]
-        for l in layers[1:-1]:
-            model.append(torch.nn.Linear(in_features=in_dim, out_features=l))
-            model.append(activation)
-            in_dim = l
-        model.append(torch.nn.Linear(in_features=layers[-2], out_features=layers[-1]))
-        self.model = torch.nn.Sequential(*model)
-
-    def forward(self, state, action):
-        s = self.state_proj(state)
-        a = self.action_proj(action)
-        fused = torch.cat([s, a], dim=-1)
-        return self.model(fused)
-
-
-class ValueNetwork(torch.nn.Module):
-    def __init__(self, layers, activation=torch.nn.ReLU()):
-        super(ValueNetwork, self).__init__()
-        model = []
-        in_dim = layers[0]
-        for l in layers[1:-1]:
-            model.append(torch.nn.Linear(in_features=in_dim, out_features=l))
-            model.append(activation)
-            in_dim = l
-        model.append(torch.nn.Linear(in_features=in_dim, out_features=layers[-1]))
-        self.model = torch.nn.Sequential(*model)
-
-    def forward(self, x):
-        return self.model(x)
-
 
 class Memory:
     def __init__(self, keys, buffer_length=-1):
