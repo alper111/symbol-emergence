@@ -1,4 +1,4 @@
-"""Tabletop environment for Gazebo."""
+"""Environments in Gazebo."""
 
 import rospy
 import numpy as np
