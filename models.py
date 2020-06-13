@@ -171,7 +171,7 @@ class PPOAgent:
         reward : torch.tensor
             Reward. This is expected to be discounted.
         adv : torch.tensor
-            Advantage.
+            Advantage. This is expected to be GAE advantage.
 
         Returns
         -------
