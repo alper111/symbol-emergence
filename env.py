@@ -9,12 +9,11 @@ class Environment:
     def __init__(self, objects, rng_ranges=None):
         """Tabletop environment wrapper.
 
-        This class implements tabletop environment.
-
         Arguments:
             objects (list of string): Names of objects.
             rng_ranges (dictionary): Defines the random generation
                 ranges of objects.
+
         """
         self.publisher = rospy.Publisher("/gazebo/set_model_state", ModelState, queue_size=10)
         self.objects = objects
