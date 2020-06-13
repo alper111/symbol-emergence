@@ -1,3 +1,5 @@
+"""Tabletop environment for Gazebo."""
+
 import rospy
 import numpy as np
 from geometry_msgs.msg import Pose
@@ -5,15 +7,18 @@ from gazebo_msgs.msg import ModelState, ModelStates
 
 
 class Environment:
+    """Tabletop environment wrapper."""
 
-    def __init__(self, objects, rng_ranges=None):
-        """Tabletop environment wrapper.
+    def __init__(self, objects, rng_ranges):
+        """
+        Initialize environment with object names and limits.
 
-        Arguments:
-            objects (list of string): Names of objects.
-            rng_ranges (dictionary): Defines the random generation
-                ranges of objects.
-
+        Parameters
+        ----------
+        objects : list of str
+            Object names.
+        rng_ranges : ndarray
+            Valid position limits for random generation.
         """
         self.publisher = rospy.Publisher("/gazebo/set_model_state", ModelState, queue_size=10)
         self.objects = objects
@@ -22,6 +27,18 @@ class Environment:
         self.prev_positions = None
 
     def get_reward(self):
+        """
+        Get reward for the current state.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        reward : float
+            Current reward value.
+        """
         target = self.prev_positions[0][:2]
         cube = self.get_object_position(self.objects[1])[:2]
         distance_target = np.linalg.norm(target-cube, 2)
@@ -29,6 +46,21 @@ class Environment:
         return reward
 
     def get_state(self):
+        """
+        Get current state.
+
+        State consists of three cartesian coordinates and four orientation
+        coordinates in quaternion for each object.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        state : ndarray
+            Current state of objects.
+        """
         msg = self.get_model_states()
         indices = list(map(lambda x: msg.name.index(x), self.objects))
         state = np.zeros((self.num_objects, 7))
@@ -41,13 +73,21 @@ class Environment:
         state[0][:3] = self.prev_positions[0]
         return state.reshape(-1)
 
-    def save(self, filename):
-        raise NotImplementedError
-
-    def load(self, filename):
-        raise NotImplementedError
-
     def random(self):
+        """
+        Set environment to a random state.
+
+        Each object is repositioned w.r.t. their limits defined in
+        `rng_ranges`.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
         current = []
         proposed = []
         for obj in self.objects:
@@ -72,10 +112,33 @@ class Environment:
             self.set_model_state(self.objects[i], pos, [0, 0, 0, 1])
 
     def load_prev_state(self):
+        """
+        Load environment to its last reset.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
         for i, pos in enumerate(self.prev_positions):
             self.set_model_state(self.objects[i], pos, [0, 0, 0, 1])
 
     def is_terminal(self):
+        """
+        Check whether the environment is at a terminal state.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        state : bool
+            True if the state is terminal. Otherwise, False.
+        """
         cube_pos = self.get_object_position(self.objects[1])[:2]
         cube_limits = self.rng_ranges[self.objects[1]]
         target_pos = self.prev_positions[0][:2]
@@ -88,10 +151,36 @@ class Environment:
         return False
 
     def get_model_states(self):
+        """
+        Get pose information of objects from Gazebo.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        msg : ModelStates
+            Pose information of each object.
+        """
         msg = rospy.wait_for_message("/model_states", ModelStates)
         return msg
 
     def get_object_position(self, name):
+        """
+        Get pose information of a single object.
+
+        Parameters
+        ----------
+        name : str
+            Name of the object.
+
+        Returns
+        -------
+        pose : list of float
+            Cartesian coordinates for position and quaternion coordinates for
+            orientation.
+        """
         msg = self.get_model_states()
         idx = msg.name.index(name)
         position = msg.pose[idx].position
@@ -99,6 +188,18 @@ class Environment:
         return [position.x, position.y, position.z, orientation.x, orientation.y, orientation.z, orientation.w]
 
     def set_model_state(self, name, pos, quat):
+        """
+        Set object's position and orientation.
+
+        Parameters
+        ----------
+        name : str
+            Name of the object.
+        pos : list of float
+            Cartesian coordinates of the object.
+        quat : list of float
+            Orientation of the object represented in quaternion coordinates.
+        """
         msg = ModelState()
         msg.model_name = name
         msg.pose = Pose()
