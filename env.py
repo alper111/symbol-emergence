@@ -7,7 +7,8 @@ from gazebo_msgs.msg import ModelState, ModelStates
 class Environment:
 
     def __init__(self, objects, rng_ranges=None):
-        """Tabletop environment wrapper.
+        """
+        Tabletop environment wrapper.
 
         Arguments:
             objects (list of string): Names of objects.
