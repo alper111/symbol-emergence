@@ -278,13 +278,17 @@ class PPOAgent:
             os.makedirs(path)
         pname = "policy"
         vname = "value"
+        stdname = "logstd"
         if ext:
             pname = pname + ext + ".ckpt"
             vname = vname + ext + ".ckpt"
+            stdname = stdname + ext + ".ckpt"
         pname = os.path.join(path, pname)
         vname = os.path.join(path, vname)
+        stdname = os.path.join(path, stdname)
         torch.save(self.policy.eval().cpu().state_dict(), pname)
         torch.save(self.value.eval().cpu().state_dict(), vname)
+        torch.save(self.log_std.cpu(), stdname)
         self.policy.train().to(self.device)
         self.value.train().to(self.device)
 
@@ -305,13 +309,17 @@ class PPOAgent:
         """
         pname = "policy"
         vname = "value"
+        stdname = "logstd"
         if ext:
             pname = pname + ext + ".ckpt"
             vname = vname + ext + ".ckpt"
+            stdname = stdname + ext + ".ckpt"
         pname = os.path.join(path, pname)
         vname = os.path.join(path, vname)
+        stdname = os.path.join(path, stdname)
         self.policy.load_state_dict(torch.load(pname))
         self.value.load_state_dict(torch.load(vname))
+        self.log_std = torch.load(stdname)
 
 
 class PGAgent:
