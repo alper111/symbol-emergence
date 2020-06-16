@@ -323,7 +323,31 @@ class PPOAgent:
 
 
 class PGAgent:
+    """Vanilla policy gradient agent."""
+
     def __init__(self, state_dim, hidden_dim, action_dim, dist, num_layers, device, lr, batch_size):
+        """
+        Initialize a PG agent.
+
+        Parameters
+        ----------
+        state_dim : int
+            State dimension (input dimension).
+        hidden_dim : int
+            Hidden dimension of MLP layers.
+        action_dim : int
+            Action dimension.
+        dist : {"gaussian", "categorical"}
+            Distribution used to represent the policy output.
+        num_layers : int
+            Number of layers in MLP.
+        device : torch.device
+            Device of MLP parameters and other parameters.
+        lr : float
+            Learning rate.
+        batch_size : int
+            Batch size. If -1, full batch is used.
+        """
         self.device = device
         self.batch_size = batch_size
         self.dst = dist
@@ -337,7 +361,16 @@ class PGAgent:
 
         self.policy = MLP(layer_info=policy_layer)
         self.policy.to(device)
-        self.optimizer = torch.optim.Adam(lr=lr, params=self.policy.parameters(), amsgrad=True)
+
+        log_std = -0.5 * torch.ones(action_dim, dtype=torch.float, device=device)
+        self.log_std = torch.nn.Parameter(log_std)
+
+        self.optimizer = torch.optim.Adam(
+            lr=lr,
+            params=[
+                {"params": self.policy.parameters()},
+                {"params": self.log_std}
+            ], amsgrad=True)
 
     def dist(self, x):
         out = self.policy(x)
