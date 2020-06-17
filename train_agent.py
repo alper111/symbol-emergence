@@ -1,5 +1,8 @@
 """Reinforcement learning agent training script."""
 import os
+import argparse
+import time
+import yaml
 import rospy
 import torch
 import numpy as np
@@ -10,36 +13,25 @@ import models
 import env
 import utils
 
-# HYPERPARAMETERS
-OUT_FOLDER = "out/ppo_gae_8"
-if not os.path.exists(OUT_FOLDER):
-    os.makedirs(OUT_FOLDER)
-device = torch.device("cuda:0") if torch.cuda.is_available() else False
-episode = 20000
-K = 80
-eps = 0.2
-c_clip = 1.0
-c_v = 0.5
-c_ent = 0.01
-lr_p = 0.0003
-lr_v = 0.001
-# Discount factor
-GAMMA = 0.99
-# GAE tradeoff parameter
-LAMBDA = 0.95
-# absolute positions + orientations (7*2), joint angles (7), tip position (2), relative positions (2*2)
-state_dim = 28
-hidden_dim = 128
-action_dim = 2
-batch_size = -1
-max_timesteps = 200
-update_iter = 20 * max_timesteps
+parser = argparse.ArgumentParser("Train PPO Agent.")
+parser.add_argument("-opts", help="option file", type=str, required=True)
+args = parser.parse_args()
+
+opts = yaml.safe_load(open(args.opts, "r"))
+if not os.path.exists(opts["save"]):
+    os.makedirs(opts["save"])
+opts["time"] = time.asctime(time.localtime(time.time()))
+file = open(os.path.join(opts["save"], "opts.yml"), "w")
+yaml.dump(opts, file)
+file.close()
+print(yaml.dump(opts))
 
 
 # INITIALIZE PPO AGENT
-model = models.PPOAgent(state_dim=state_dim, hidden_dim=hidden_dim, action_dim=action_dim, dist="gaussian",
-                        num_layers=3, device=device, lr_p=lr_p, lr_v=lr_v, K=K, batch_size=batch_size, eps=eps,
-                        c_clip=c_clip, c_v=c_v, c_ent=c_ent)
+model = models.PPOAgent(state_dim=opts["state_dim"], hidden_dim=opts["hidden_dim"], action_dim=opts["action_dim"],
+                        dist="gaussian", num_layers=opts["num_layers"], device=opts["device"], lr_p=opts["lr_p"],
+                        lr_v=opts["lr_v"], K=opts["K"], batch_size=opts["batch_size"], eps=opts["eps"],
+                        c_clip=opts["c_clip"], c_v=opts["c_v"], c_ent=opts["c_ent"])
 
 # INITIALIZE ROSNODE
 rospy.init_node("training_node", anonymous=True)
@@ -70,13 +62,16 @@ print("="*10+"VALUE NETWORK"+"="*10)
 print(model.value)
 print("Training starts...")
 reward_history = []
-for epi in range(episode):
+for epi in range(opts["episode"]):
+
     states = []
     actions = []
     logprobs = []
     rewards = []
+
     world.random()
     rospy.sleep(0.1)
+
     target_pos = np.array(world.get_object_position(objects[0])[:2])
     cube_pos = np.array(world.get_object_position(objects[1])[:2])
     diff = target_pos - cube_pos
@@ -96,7 +91,7 @@ for epi in range(episode):
         continue
 
     skip = False
-    for t in range(max_timesteps):
+    for t in range(opts["max_timesteps"]):
         # GET STATE
         tip_x = np.array(robot.get_tip_pos()[:2])
         joint_angles = robot.get_joint_angles()
@@ -105,7 +100,7 @@ for epi in range(episode):
         # rel_object_x = object_x[:, :2] - tip_x"
         # x = np.concatenate([object_x.reshape(-1), rel_object_x.reshape(-1), tip_x, joint_angles])
         x = np.concatenate([object_x, joint_angles])
-        x = torch.tensor(x, dtype=torch.float, device=device)
+        x = torch.tensor(x, dtype=torch.float, device=opts["device"])
         states.append(x)
         # ACT
         action, logprob = model.action(x)
@@ -131,7 +126,7 @@ for epi in range(episode):
         # COLLECT REWARD AND BOOKKEEPING
         actions.append(action)
         logprobs.append(logprob)
-        if done or (t == (max_timesteps-1)):
+        if done or (t == (opts["max_timesteps"]-1)):
             start_diff = np.linalg.norm(diff, 2)
             target_pos = np.array(world.get_object_position(objects[0])[:2])
             cube_pos = np.array(world.get_object_position(objects[1])[:2])
@@ -158,7 +153,7 @@ for epi in range(episode):
     # rel_object_x = object_x[:, :2] - tip_x
     # x = np.concatenate([object_x.reshape(-1), rel_object_x.reshape(-1), tip_x, joint_angles])
     x = np.concatenate([object_x, joint_angles])
-    x = torch.tensor(x, dtype=torch.float, device=device)
+    x = torch.tensor(x, dtype=torch.float, device=opts["device"])
     states.append(x)
     if not done:
         rewards.append(model.value(x).item())
@@ -169,15 +164,15 @@ for epi in range(episode):
     states = torch.stack(states)
     actions = torch.stack(actions)
     logprobs = torch.stack(logprobs).detach()
-    rewards = torch.tensor(rewards, dtype=torch.float, device=device)
+    rewards = torch.tensor(rewards, dtype=torch.float, device=opts["device"])
     with torch.no_grad():
         values = model.value(states).reshape(-1)
         if done:
             values[-1] = 0.0
-        advantages = rewards[:-1] + GAMMA * values[1:] - values[:-1]
-    discounted_adv = utils.discount(advantages, GAMMA * LAMBDA)
+        advantages = rewards[:-1] + opts["gamma"] * values[1:] - values[:-1]
+    discounted_adv = utils.discount(advantages, opts["gamma"] * opts["lambda"])
     cumrew = rewards[:-1].sum().item()
-    rewards = utils.discount(rewards, gamma=GAMMA)[:-1]
+    rewards = utils.discount(rewards, gamma=opts["gamma"])[:-1]
     reward_history.append(cumrew)
 
     if (torch.isnan(values)).any():
@@ -189,13 +184,14 @@ for epi in range(episode):
     # ADD TO MEMORY
     for i in range(states.shape[0]-1):
         model.record(states[i], actions[i], logprobs[i], rewards[i], discounted_adv[i])
-    np.save(os.path.join(OUT_FOLDER, "rewards.npy"), reward_history)
+    np.save(os.path.join(opts["save"], "rewards.npy"), reward_history)
 
     # UPDATE
-    if model.memory.size >= update_iter:
+    if model.memory.size >= opts["update_iter"]:
         loss = model.update()
         model.reset_memory()
-        model.save(OUT_FOLDER, ext=str(epi+1))
+        model.save(opts["save"], ext=str(epi+1))
+        model.save(opts["save"], ext="_last")
         print("Episode: %d, reward: %.3f, loss=%.3f" % (epi+1, cumrew, loss))
 
 # RESET ARM POSITION
@@ -207,6 +203,6 @@ robot.go(np.radians([0, 0, 0, 0, 0, 0, 0]))
 rospy.sleep(2)
 
 plt.plot(reward_history)
-pp = PdfPages(os.path.join(OUT_FOLDER, "reward.pdf"))
+pp = PdfPages(os.path.join(opts["save"], "reward.pdf"))
 pp.savefig()
 pp.close()
