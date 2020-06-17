@@ -1,3 +1,4 @@
+"""Reinforcement learning agent training script."""
 import os
 import rospy
 import torch
@@ -9,29 +10,37 @@ import models
 import env
 import utils
 
-
-OUT_FOLDER = "out/ppo_1"
+# HYPERPARAMETERS
+OUT_FOLDER = "out/ppo_gae_7"
 if not os.path.exists(OUT_FOLDER):
     os.makedirs(OUT_FOLDER)
 device = torch.device("cuda:0") if torch.cuda.is_available() else False
 episode = 20000
-K = 4
+K = 80
 batch_size = -1
 eps = 0.2
-update_iter = 2000
+update_iter = 4000
 c_clip = 1.0
 c_v = 0.5
 c_ent = 0.01
-lr = 0.002
-state_dim = 4+7
+lr_p = 0.0003
+lr_v = 0.001
+# Discount factor
+GAMMA = 0.99
+# GAE tradeoff parameter
+LAMBDA = 0.95
+# absolute positions + orientations (7*2), joint angles (7), tip position (2), relative positions (2*2)
+state_dim = 21
 hidden_dim = 128
 action_dim = 2
 max_timesteps = 200
 
-model = models.PPOAgent(state_dim=state_dim, hidden_dim=hidden_dim, action_dim=2*action_dim, dist="gaussian",
-                        num_layers=2, device=device, lr=lr, K=K, batch_size=batch_size, eps=eps, c_clip=c_clip,
-                        c_v=c_v, c_ent=c_ent)
+# INITIALIZE PPO AGENT
+model = models.PPOAgent(state_dim=state_dim, hidden_dim=hidden_dim, action_dim=action_dim, dist="gaussian",
+                        num_layers=4, device=device, lr_p=lr_p, lr_v=lr_v, K=K, batch_size=batch_size, eps=eps,
+                        c_clip=c_clip, c_v=c_v, c_ent=c_ent)
 
+# INITIALIZE ROSNODE
 rospy.init_node("training_node", anonymous=True)
 rate = rospy.Rate(100)
 rospy.sleep(1.0)
@@ -43,21 +52,15 @@ robot.go(np.radians([90, 0, 0, 0, 0, -90, 0]))
 rospy.sleep(2)
 robot.go(np.radians([90, 45, 0, 45, 0, -90, 0]))
 rospy.sleep(2)
-# robot.go(np.radians([90, 45, 0, 45, 0, -30, 0]))
-# rospy.sleep(2)
 
+# INITIALIZE ENVIRONMENT
 objects = ["target_plate", "small_cube"]
-random_ranges = np.array([
-    [0.00, 0.00, 0., 0.4, 0.3, 1.125],
-    # [0.19, 0.60, 0., 0.32, -0.10, 1.140],
-    [0.19, 0.50, 0., 0.32, 0.0, 1.155],
-    # [0.00, 0.00, 0., 0.4, 0.1, 1.135],
-])
-
-
+random_ranges = {
+    "target_plate": np.array([[0.32, 0.45], [0.10, 0.30], [1.125, 1.125]]),
+    "small_cube": np.array([[0.32, 0.45], [0.10, 0.30], [1.155, 1.155]])
+}
 world = env.Environment(objects=objects, rng_ranges=random_ranges)
 rospy.sleep(0.5)
-# world.random()
 
 print("="*10+"POLICY NETWORK"+"="*10)
 print(model.policy)
@@ -72,13 +75,16 @@ for epi in range(episode):
     rewards = []
     world.random()
     rospy.sleep(0.1)
-    cube_pos = world.get_object_position(objects[1])
-    cube_pos[1] = cube_pos[1] - 0.07
+    target_pos = np.array(world.get_object_position(objects[0])[:2])
+    cube_pos = np.array(world.get_object_position(objects[1])[:2])
+    diff = target_pos - cube_pos
+    diff_n = 0.08 * (diff / np.linalg.norm(diff, 2))
+    start_pos = cube_pos - diff_n
     ##
     robot.go(np.radians([90, 45, 0, 45, 0, -30, 0]))
     rospy.sleep(2)
     ##
-    action_aug = cube_pos + [1.17, np.pi, 0, 0]
+    action_aug = start_pos.tolist() + [1.17, np.pi, 0, 0]
     angles = robot.compute_ik(robot.get_joint_angles(), action_aug)
     if angles != -31:
         robot.go(angles, time_from_start=2.0)
@@ -87,55 +93,103 @@ for epi in range(episode):
         print("Skipping")
         continue
 
+    skip = False
     for t in range(max_timesteps):
-        x = world.get_state().reshape(-1, 2)
-        tip_pos = np.array(robot.get_tip_pos()[:2])
+        # GET STATE
+        tip_x = np.array(robot.get_tip_pos()[:2])
         joint_angles = robot.get_joint_angles()
-        x = (x - tip_pos).reshape(-1)
-        x = np.concatenate([x, joint_angles])
+        object_x = world.get_state().reshape(-1)
+        # object_x = world.get_state().reshape(-1, 7)
+        # rel_object_x = object_x[:, :2] - tip_x"
+        # x = np.concatenate([object_x.reshape(-1), rel_object_x.reshape(-1), tip_x, joint_angles])
+        x = np.concatenate([object_x, joint_angles])
         x = torch.tensor(x, dtype=torch.float, device=device)
         states.append(x)
+        # ACT
         action, logprob = model.action(x)
-        action.clamp_(-1., 1.)
-        action *= 0.1
-        x_next = np.array(tip_pos) + action.cpu().numpy()
-        x_next[0] = np.clip(x_next[0], 0.32, 0.51)
-        x_next[1] = np.clip(x_next[1], -0.1, 0.5)
+        # action.clamp_(-1., 1.)
+        normalized_action = action * 0.005
+        x_next = np.array(tip_x) + normalized_action.cpu().numpy()
+        xmin = max(random_ranges["small_cube"][0, 0] - 0.08, 0.32)
+        xmax = min(random_ranges["small_cube"][0, 1] + 0.08, 0.51)
+        ymin = max(random_ranges["small_cube"][1, 0] - 0.08, -0.10)
+        ymax = min(random_ranges["small_cube"][1, 1] + 0.08, 0.50)
+        x_next[0] = np.clip(x_next[0], xmin, xmax)
+        x_next[1] = np.clip(x_next[1], ymin, ymax)
         action_aug = x_next.tolist() + [1.17, np.pi, 0, 0]
         angles = robot.compute_ik(robot.get_joint_angles(), action_aug)
         if angles != -31:
-            robot.go(angles, time_from_start=2.0)
+            robot.go(angles, time_from_start=rate.sleep_dur.to_sec())
             rate.sleep()
+        else:
+            skip = True
+            break
 
+        done = world.is_terminal()
+        # COLLECT REWARD AND BOOKKEEPING
         actions.append(action)
         logprobs.append(logprob)
-        if world.is_terminal() or (t == max_timesteps-1):
-            reward = world.get_reward(arm_position=tip_pos)
-            rewards.append(reward)
+        if done or (t == (max_timesteps-1)):
+            start_diff = np.linalg.norm(diff, 2)
+            target_pos = np.array(world.get_object_position(objects[0])[:2])
+            cube_pos = np.array(world.get_object_position(objects[1])[:2])
+            end_diff = np.linalg.norm(target_pos - cube_pos, 2)
+            reward = start_diff - end_diff
+            if reward < 1e-4:
+                reward = 0.0
+            rewards.append(reward*10)
             break
         else:
             rewards.append(0.0)
+    if len(actions) < 10:
+        skip = True
 
-    # reshaping
+    if skip:
+        print("Breaking the episode")
+        continue
+
+    # CONSTRUCT STATE T+1
+    object_x = world.get_state().reshape(-1)
+    joint_angles = robot.get_joint_angles()
+    # tip_x = np.array(robot.get_tip_pos()[:2])
+    # object_x = world.get_state().reshape(-1, 7)
+    # rel_object_x = object_x[:, :2] - tip_x
+    # x = np.concatenate([object_x.reshape(-1), rel_object_x.reshape(-1), tip_x, joint_angles])
+    x = np.concatenate([object_x, joint_angles])
+    x = torch.tensor(x, dtype=torch.float, device=device)
+    states.append(x)
+    if not done:
+        rewards.append(model.value(x).item())
+    else:
+        rewards.append(0.0)
+
+    # RESHAPING
     states = torch.stack(states)
     actions = torch.stack(actions)
     logprobs = torch.stack(logprobs).detach()
     rewards = torch.tensor(rewards, dtype=torch.float, device=device)
-    cumrew = rewards.sum().item()
-    rewards = utils.discount(rewards, gamma=0.99)
-    reward_history.append(cumrew)
     with torch.no_grad():
         values = model.value(states).reshape(-1)
+        if done:
+            values[-1] = 0.0
+        advantages = rewards[:-1] + GAMMA * values[1:] - values[:-1]
+    discounted_adv = utils.discount(advantages, GAMMA * LAMBDA)
+    cumrew = rewards[:-1].sum().item()
+    rewards = utils.discount(rewards, gamma=GAMMA)[:-1]
+    reward_history.append(cumrew)
 
     if (torch.isnan(values)).any():
         print("got estimate nan.")
         exit()
 
-    print("Episode: %d, reward: %.3f" % (epi+1, cumrew))
-    # add to memory
-    for i in range(states.shape[0]):
-        model.record(states[i], actions[i], logprobs[i], rewards[i], values[i])
+    print("Episode: %d, reward: %.3f, std: %.3f, %.3f" % (epi+1, cumrew, *torch.exp(model.log_std).detach()))
+
+    # ADD TO MEMORY
+    for i in range(states.shape[0]-1):
+        model.record(states[i], actions[i], logprobs[i], rewards[i], discounted_adv[i])
     np.save(os.path.join(OUT_FOLDER, "rewards.npy"), reward_history)
+
+    # UPDATE
     if model.memory.size >= update_iter:
         loss = model.update()
         model.reset_memory()
