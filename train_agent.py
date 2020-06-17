@@ -11,15 +11,13 @@ import env
 import utils
 
 # HYPERPARAMETERS
-OUT_FOLDER = "out/ppo_gae_7"
+OUT_FOLDER = "out/ppo_gae_8"
 if not os.path.exists(OUT_FOLDER):
     os.makedirs(OUT_FOLDER)
 device = torch.device("cuda:0") if torch.cuda.is_available() else False
 episode = 20000
 K = 80
-batch_size = -1
 eps = 0.2
-update_iter = 4000
 c_clip = 1.0
 c_v = 0.5
 c_ent = 0.01
@@ -30,14 +28,17 @@ GAMMA = 0.99
 # GAE tradeoff parameter
 LAMBDA = 0.95
 # absolute positions + orientations (7*2), joint angles (7), tip position (2), relative positions (2*2)
-state_dim = 21
+state_dim = 28
 hidden_dim = 128
 action_dim = 2
+batch_size = -1
 max_timesteps = 200
+update_iter = 20 * max_timesteps
+
 
 # INITIALIZE PPO AGENT
 model = models.PPOAgent(state_dim=state_dim, hidden_dim=hidden_dim, action_dim=action_dim, dist="gaussian",
-                        num_layers=4, device=device, lr_p=lr_p, lr_v=lr_v, K=K, batch_size=batch_size, eps=eps,
+                        num_layers=3, device=device, lr_p=lr_p, lr_v=lr_v, K=K, batch_size=batch_size, eps=eps,
                         c_clip=c_clip, c_v=c_v, c_ent=c_ent)
 
 # INITIALIZE ROSNODE
@@ -54,10 +55,11 @@ robot.go(np.radians([90, 45, 0, 45, 0, -90, 0]))
 rospy.sleep(2)
 
 # INITIALIZE ENVIRONMENT
-objects = ["target_plate", "small_cube"]
+objects = ["target_plate", "small_cube", "obstacle"]
 random_ranges = {
-    "target_plate": np.array([[0.32, 0.45], [0.10, 0.30], [1.125, 1.125]]),
-    "small_cube": np.array([[0.32, 0.45], [0.10, 0.30], [1.155, 1.155]])
+    "target_plate": np.array([[0.32, 0.52], [0.30, 0.50], [1.125, 1.125]]),
+    "small_cube": np.array([[0.32, 0.52], [0.0, 0.15], [1.155, 1.155]]),
+    "obstacle": np.array([[0.32, 0.52], [0.25, 0.25], [1.155, 1.155]])
 }
 world = env.Environment(objects=objects, rng_ranges=random_ranges)
 rospy.sleep(0.5)
