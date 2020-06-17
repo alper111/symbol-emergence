@@ -149,8 +149,7 @@ class PPOAgent:
             action = m.sample()
         else:
             with torch.no_grad():
-                out = self.policy(x)
-                action = torch.tanh(out[..., :out.shape[-1]//2])
+                action = self.policy(x)
         logprob = m.log_prob(action)
         if self.multivariate:
             logprob = logprob.sum(dim=-1)
@@ -319,7 +318,7 @@ class PPOAgent:
         stdname = os.path.join(path, stdname)
         self.policy.load_state_dict(torch.load(pname))
         self.value.load_state_dict(torch.load(vname))
-        self.log_std = torch.load(stdname)
+        # self.log_std = torch.load(stdname)
 
 
 class PGAgent:
