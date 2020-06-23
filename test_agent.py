@@ -56,7 +56,7 @@ print("Training starts...")
 reward_history = []
 states = []
 
-for epi in range(100):
+for epi in range(50):
 
     world.random()
     rospy.sleep(0.1)
@@ -79,12 +79,12 @@ for epi in range(100):
         print("Skipping")
         continue
 
-    s = {}
-    s["target_plate"] = world.get_object_position("target_plate")
-    s["small_cube"] = world.get_object_position("small_cube")
-    s["robot"] = robot.get_joint_angles()
-    states.append(s)
     for t in range(opts["max_timesteps"]):
+        s = {}
+        s["target_plate"] = world.get_object_position("target_plate")
+        s["small_cube"] = world.get_object_position("small_cube")
+        s["robot"] = robot.get_joint_angles()
+        states.append(s)
         # GET STATE
         tip_x = np.array(robot.get_tip_pos()[:2])
         joint_angles = robot.get_joint_angles()
