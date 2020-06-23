@@ -143,3 +143,5 @@ out/*
 
 # macos stuff
 .DS_store
+
+*.yml
