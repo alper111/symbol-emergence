@@ -1,3 +1,4 @@
+"""Wrapper for Torobo robot."""
 import rospy
 import numpy as np
 from sensor_msgs.msg import JointState
@@ -12,6 +13,7 @@ class Torobo:
     """Wrapper class for Torobo."""
 
     def __init__(self):
+        """Initialize ROS services and publishers."""
         self.MAX_VELOCITY = np.radians([150, 150, 180, 180, 200, 200, 200])
         self.JOINT_NAMES = ["left_arm/joint_" + str(i) for i in range(1, 8)]
 
@@ -23,6 +25,20 @@ class Torobo:
         self._publisher = rospy.Publisher("/torobo/left_arm_controller/command", JointTrajectory, queue_size=1)
 
     def compute_fk(self, joint_angles):
+        """
+        Compute forward-kinematics.
+
+        Parameters
+        ----------
+        joint_angles : list of float
+            Joint angles of the robot in radians.
+
+        Returns
+        -------
+        pose : list of float
+            Pose in cartesian coordinates and euler angles in radians.
+            i.e. [x, y, z, rx, ry, rz]
+        """
         header = Header(0, rospy.Time.now(), "world")
         rs = RobotState()
         rs.joint_state.name = self.JOINT_NAMES
@@ -34,6 +50,23 @@ class Torobo:
         return [pose.position.x, pose.position.y, pose.position.z, euler[0], euler[1], euler[2]]
 
     def compute_ik(self, joint_angles, target):
+        """
+        Compute inverse-kinematics.
+
+        Parameters
+        ----------
+        joint_angles : list of float
+            Joint angles of the robot in radians.
+        target : list of float
+            Target pose in cartesian coordinates and euler angles in radians.
+            i.e. [x, y, z, rx, ry, rz]
+
+        Returns
+        -------
+        target_angles : list of float or int.
+            Target joint angles if a solution is found, else -31 which
+            indicates a solution cannot be found.
+        """
         quaternion = Rotation.from_euler("zyx", [target[-1], target[-2], target[-3]]).as_quat()
         # create request
         req = PositionIKRequest()
@@ -64,6 +97,26 @@ class Torobo:
         return ik_result.joint_state.position[4:11]
 
     def go(self, positions, velocities=None, accelerations=None, effort=None, time_from_start=2.0):
+        """
+        Move robot arm to the target joint angles.
+
+        Parameters
+        ----------
+        positions : list of float
+            Target joint angles in radians.
+        velocities : list of float, optional
+            Target joint velocities in radians/s.
+        accelerations : list of float, optional
+            Target joint accelerations in radians/s^2.
+        effort : list of float
+            Target joint efforts in torques.
+        time_from_start : float
+            Allowed execution time.
+
+        Returns
+        -------
+        None
+        """
         msg = JointTrajectory()
         msg.joint_names = self.JOINT_NAMES
         joint_states = JointTrajectoryPoint()
@@ -79,6 +132,18 @@ class Torobo:
         self._publisher.publish(msg)
 
     def convert_to_joint(self, points):
+        """
+        Compute inverse kinematics for a sequence of via points.
+
+        Parameters
+        ----------
+        points : nd.array
+            Two dimensional numpy array which holds via-points.
+
+        Returns
+        -------
+        None
+        """
         angles = self.get_joint_angles()
         path = []
         failed = False
@@ -93,17 +158,21 @@ class Torobo:
         return path, failed
 
     def init_pose(self):
+        """Move to initialization pose."""
         self.go(np.radians([90, 45, 0, 45, 0, 0, 0]))
 
     def zero_pose(self):
+        """Move to reset pose."""
         self.go(np.radians([0, 0, 0, 0, 0, 0, 0]))
 
     def get_joint_angles(self):
+        """Get current joint angles in radians."""
         msg = rospy.wait_for_message("/torobo/joint_states", JointState)
         joint_angles = msg.position[2:9]
         return joint_angles
 
     def get_tip_pos(self):
+        """Get current tip pose in cartesian coordinates and euler angles in radians."""
         angles = self.get_joint_angles()
         x = self.compute_fk(angles)
         return x
