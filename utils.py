@@ -1,7 +1,23 @@
+"""Utility functions for RL training."""
 import torch
 
 
 def discount(rewards, gamma):
+    """
+    Discount the reward trajectory.
+
+    Parameters
+    ----------
+    rewards : list of float
+        Reward trajectory.
+    gamma : float
+        Discount factor.
+
+    Returns
+    -------
+    discounted_rewards : list of float
+        Discounted reward trajectory.
+    """
     R = 0.0
     discounted_rewards = []
     for r in reversed(rewards):
@@ -9,10 +25,3 @@ def discount(rewards, gamma):
         discounted_rewards.insert(0, R)
     discounted_rewards = torch.tensor(discounted_rewards, device=rewards.device)
     return discounted_rewards
-
-
-def get_dim(dimensions):
-    N = 1
-    for d in dimensions:
-        N = N * d
-    return N
