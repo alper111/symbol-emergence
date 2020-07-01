@@ -65,13 +65,12 @@ for epi in range(opts["episode"]):
 
     world.random()
     rospy.sleep(0.1)
-
+    # MOVE TO INITIAL POSITION
     target_pos = np.array(world.get_object_position(opts["objects"][0])[:2])
     cube_pos = np.array(world.get_object_position(opts["objects"][1])[:2])
     diff = target_pos - cube_pos
     diff_n = 0.08 * (diff / np.linalg.norm(diff, 2))
     start_pos = cube_pos - diff_n
-    ##
     robot.go(np.radians([90, 45, 0, 45, 0, -30, 0]))
     rospy.sleep(2)
     ##
@@ -87,20 +86,14 @@ for epi in range(opts["episode"]):
     skip = False
     for t in range(opts["max_timesteps"]):
         # GET STATE
-        tip_x = np.array(robot.get_tip_pos()[:2])
-        joint_angles = robot.get_joint_angles()
-        object_x = world.get_state().reshape(-1)
-        # object_x = world.get_state().reshape(-1, 7)
-        # rel_object_x = object_x[:, :2] - tip_x"
-        # x = np.concatenate([object_x.reshape(-1), rel_object_x.reshape(-1), tip_x, joint_angles])
-        x = np.concatenate([object_x, joint_angles])
-        x = torch.tensor(x, dtype=torch.float, device=opts["device"])
+        x = utils.construct_state(world, robot, opts["device"])
         states.append(x)
+
         # ACT
         action, logprob = model.action(x)
         # action.clamp_(-1., 1.)
         normalized_action = action * 0.005
-        x_next = np.array(tip_x) + normalized_action.cpu().numpy()
+        x_next = np.array(x[2:4]) + normalized_action.cpu().numpy()
         xmin = max(opts["ranges"][opts["objects"][1]][0, 0] - 0.08, 0.32)
         xmax = min(opts["ranges"][opts["objects"][1]][0, 1] + 0.08, 0.51)
         ymin = max(opts["ranges"][opts["objects"][1]][1, 0] - 0.08, -0.10)
@@ -115,8 +108,8 @@ for epi in range(opts["episode"]):
         else:
             skip = True
             break
-
         done = world.is_terminal()
+
         # COLLECT REWARD AND BOOKKEEPING
         actions.append(action)
         logprobs.append(logprob)
@@ -140,14 +133,7 @@ for epi in range(opts["episode"]):
         continue
 
     # CONSTRUCT STATE T+1
-    object_x = world.get_state().reshape(-1)
-    joint_angles = robot.get_joint_angles()
-    # tip_x = np.array(robot.get_tip_pos()[:2])
-    # object_x = world.get_state().reshape(-1, 7)
-    # rel_object_x = object_x[:, :2] - tip_x
-    # x = np.concatenate([object_x.reshape(-1), rel_object_x.reshape(-1), tip_x, joint_angles])
-    x = np.concatenate([object_x, joint_angles])
-    x = torch.tensor(x, dtype=torch.float, device=opts["device"])
+    x = utils.construct_state(world, robot, opts["device"])
     states.append(x)
     if not done:
         rewards.append(model.value(x).item())
