@@ -4,6 +4,7 @@ import numpy as np
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from moveit_msgs.msg import RobotState, PositionIKRequest
+from torobo_msgs.msg import ToroboJointState
 from moveit_msgs.srv import GetPositionFK, GetPositionIK
 from std_msgs.msg import Header
 from scipy.spatial.transform import Rotation
@@ -176,3 +177,22 @@ class Torobo:
         angles = self.get_joint_angles()
         x = self.compute_fk(angles)
         return x
+
+    def in_collision(self):
+        """
+        Get collision information.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        collision : bool
+            True if the robot arm is in collision.
+        """
+        msg = rospy.wait_for_message("/torobo/left_gripper_controller/torobo_joint_state", ToroboJointState)
+        if msg.acceleration[0] > 1.0 and (msg.acceleration[0] != np.inf) and (msg.acceleration[0] != -np.inf):
+            return True
+        else:
+            return False
