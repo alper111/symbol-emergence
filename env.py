@@ -143,7 +143,8 @@ class Environment:
         cube_limits = self.rng_ranges[self.objects[1]]
         target_pos = self.prev_positions[0][:2]
         distance_target = np.linalg.norm(target_pos-cube_pos, 2)
-        if not ((cube_limits[:2, 0] < cube_pos).all() and (cube_pos < cube_limits[:2, 1]).all()):
+        # TODO: set these into parameters in initialization.
+        if not ((cube_limits[0, 0] < cube_pos[0]) and (cube_pos[0] < cube_limits[0, 1])):
             return True
         if distance_target < 0.05:
             return True
