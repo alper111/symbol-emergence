@@ -47,13 +47,7 @@ robot.go(np.radians([90, 45, 0, 45, 0, -90, 0]))
 rospy.sleep(2)
 
 # INITIALIZE ENVIRONMENT
-objects = ["target_plate", "small_cube", "obstacle"]
-random_ranges = {
-    "target_plate": np.array([[0.32, 0.52], [0.30, 0.50], [1.125, 1.125]]),
-    "small_cube": np.array([[0.32, 0.52], [0.0, 0.15], [1.155, 1.155]]),
-    "obstacle": np.array([[0.32, 0.52], [0.25, 0.25], [1.155, 1.155]])
-}
-world = env.Environment(objects=objects, rng_ranges=random_ranges)
+world = env.Environment(objects=opts["objects"], rng_ranges=opts["ranges"])
 rospy.sleep(0.5)
 
 print("="*10+"POLICY NETWORK"+"="*10)
@@ -72,8 +66,8 @@ for epi in range(opts["episode"]):
     world.random()
     rospy.sleep(0.1)
 
-    target_pos = np.array(world.get_object_position(objects[0])[:2])
-    cube_pos = np.array(world.get_object_position(objects[1])[:2])
+    target_pos = np.array(world.get_object_position(opts["objects"][0])[:2])
+    cube_pos = np.array(world.get_object_position(opts["objects"][1])[:2])
     diff = target_pos - cube_pos
     diff_n = 0.08 * (diff / np.linalg.norm(diff, 2))
     start_pos = cube_pos - diff_n
@@ -107,10 +101,10 @@ for epi in range(opts["episode"]):
         # action.clamp_(-1., 1.)
         normalized_action = action * 0.005
         x_next = np.array(tip_x) + normalized_action.cpu().numpy()
-        xmin = max(random_ranges["small_cube"][0, 0] - 0.08, 0.32)
-        xmax = min(random_ranges["small_cube"][0, 1] + 0.08, 0.51)
-        ymin = max(random_ranges["small_cube"][1, 0] - 0.08, -0.10)
-        ymax = min(random_ranges["small_cube"][1, 1] + 0.08, 0.50)
+        xmin = max(opts["ranges"][opts["objects"][1]][0, 0] - 0.08, 0.32)
+        xmax = min(opts["ranges"][opts["objects"][1]][0, 1] + 0.08, 0.51)
+        ymin = max(opts["ranges"][opts["objects"][1]][1, 0] - 0.08, -0.10)
+        ymax = min(opts["ranges"][opts["objects"][1]][1, 1] + 0.08, 0.50)
         x_next[0] = np.clip(x_next[0], xmin, xmax)
         x_next[1] = np.clip(x_next[1], ymin, ymax)
         action_aug = x_next.tolist() + [1.17, np.pi, 0, 0]
@@ -128,8 +122,8 @@ for epi in range(opts["episode"]):
         logprobs.append(logprob)
         if done or (t == (opts["max_timesteps"]-1)):
             start_diff = np.linalg.norm(diff, 2)
-            target_pos = np.array(world.get_object_position(objects[0])[:2])
-            cube_pos = np.array(world.get_object_position(objects[1])[:2])
+            target_pos = np.array(world.get_object_position(opts["objects"][0])[:2])
+            cube_pos = np.array(world.get_object_position(opts["objects"][1])[:2])
             end_diff = np.linalg.norm(target_pos - cube_pos, 2)
             reward = start_diff - end_diff
             if reward < 1e-4:
