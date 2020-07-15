@@ -319,7 +319,7 @@ class PPOAgent:
         stdname = os.path.join(path, stdname)
         self.policy.load_state_dict(torch.load(pname))
         self.value.load_state_dict(torch.load(vname))
-        # self.log_std = torch.load(stdname)
+        self.log_std.data = torch.load(stdname)
 
 
 class PGAgent:
