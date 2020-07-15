@@ -59,3 +59,49 @@ def construct_state(world, robot, device="cpu"):
     x = np.concatenate([object_x[0, :2], tip_x, joint_angles, object_x[1:].reshape(-1)])
     x = torch.tensor(x, dtype=torch.float, device=device)
     return x
+
+
+def clip_to_rectangle(x, global_limits):
+    """
+    Clip x to global limits.
+
+    Parameters
+    ----------
+    x : list of float
+        Array to be clipped.
+    global_limits : list of list of float
+        Global operational limits. [[min_x, max_x], [min_y, max_y]].
+
+    Returns
+    -------
+    clipped : list of float
+        Clipped state.
+    """
+    clipped = x.copy()
+    clipped[0] = np.clip(clipped[0], global_limits[0][0], global_limits[0][1])
+    clipped[1] = np.clip(clipped[1], global_limits[1][0], global_limits[1][1])
+    return clipped
+
+
+def in_rectangle(x, rectangle):
+    """
+    Check whether x is in rectangle.
+
+    Parameters
+    ----------
+    x : list of float
+        2-dimensional point. [x, y]
+    rectangle : list of list of float
+        Rectangle limits. [[min_x, max_x], [min_y, max_y]]
+
+    Returns
+    -------
+    result : bool
+        True if point is in rectangle limits else False.
+    """
+    p = np.array(x)
+    rec = np.array(rectangle)
+    result = False
+    if (rec[:, 0] < p).all() and (p < (rec[:, 1])).all():
+        result = True
+    return result
