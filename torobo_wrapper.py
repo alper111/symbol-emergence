@@ -160,7 +160,7 @@ class Torobo:
 
     def init_pose(self):
         """Move to initialization pose."""
-        self.go(np.radians([90, 45, 0, 45, 0, 0, 0]))
+        self.go(np.radians([90, 45, 0, 45, 0, -30, 0]))
 
     def zero_pose(self):
         """Move to reset pose."""
@@ -192,7 +192,7 @@ class Torobo:
             True if the robot arm is in collision.
         """
         msg = rospy.wait_for_message("/torobo/left_gripper_controller/torobo_joint_state", ToroboJointState)
-        if msg.acceleration[0] > 1.0 and (msg.acceleration[0] != np.inf) and (msg.acceleration[0] != -np.inf):
+        if msg.acceleration[0] > 20.0 and (msg.acceleration[0] != np.inf) and (msg.acceleration[0] != -np.inf):
             return True
         else:
             return False
