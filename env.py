@@ -26,13 +26,14 @@ class Environment:
         self.rng_ranges = rng_ranges
         self.prev_positions = None
 
-    def get_reward(self):
+    def get_reward(self, init_diff):
         """
         Get reward for the current state.
 
         Parameters
         ----------
-        None
+        init_diff : float
+            Initial difference.
 
         Returns
         -------
@@ -41,8 +42,12 @@ class Environment:
         """
         target = self.prev_positions[0][:2]
         cube = self.get_object_position(self.objects[1])[:2]
-        distance_target = np.linalg.norm(target-cube, 2)
-        reward = - distance_target
+        final_diff = np.linalg.norm(target-cube, 2)
+        reward = init_diff - final_diff
+        if reward < 1e-4:
+            reward = 0.0
+        else:
+            reward = 10 * reward
         return reward
 
     def get_state(self):
@@ -140,12 +145,9 @@ class Environment:
             True if the state is terminal. Otherwise, False.
         """
         cube_pos = self.get_object_position(self.objects[1])[:2]
-        cube_limits = self.rng_ranges[self.objects[1]]
         target_pos = self.prev_positions[0][:2]
         distance_target = np.linalg.norm(target_pos-cube_pos, 2)
         # TODO: set these into parameters in initialization.
-        if not ((cube_limits[0, 0] < cube_pos[0]) and (cube_pos[0] < cube_limits[0, 1])):
-            return True
         if distance_target < 0.05:
             return True
 
