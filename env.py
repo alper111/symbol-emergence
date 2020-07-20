@@ -111,7 +111,7 @@ class Environment:
         target_pos = self.prev_positions[0][:2]
         distance_target = np.linalg.norm(target_pos-cube_pos, 2)
         # TODO: set these into parameters in initialization.
-        if distance_target < 0.05:
+        if distance_target < 0.001:
             return True
 
         return False
@@ -131,8 +131,8 @@ class Environment:
             Current reward value.
         """
         target = self.prev_positions[0][:2]
-        cube = self.get_object_position(self.objects[1])[:2]
-        final_diff = np.linalg.norm(target-cube, 2)
+        obj = self.get_object_position(self.objects[-1])[:2]
+        final_diff = np.linalg.norm(target-obj, 2)
         reward = init_diff - final_diff
         if reward < 1e-4:
             reward = 0.0
