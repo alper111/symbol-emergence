@@ -13,6 +13,7 @@ args = parser.parse_args()
 
 # READ SETTINGS
 opts = yaml.safe_load(open(args.opts, "r"))
+opts["device"] = "cpu"
 print(opts)
 
 # INITIALIZE PPO AGENT
@@ -57,6 +58,7 @@ for epi in range(50):
 
         if done or (t == (opts["max_timesteps"]-1)):
             cumsum = reward
+            break
         else:
             cumsum = 0.0
 
