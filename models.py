@@ -67,7 +67,7 @@ class PPOAgent:
         self.policy.to(device)
         self.value.to(device)
 
-        log_std = -0.5 * torch.ones(action_dim, dtype=torch.float, device=device)
+        log_std = -0.25 * torch.ones(action_dim, dtype=torch.float, device=device)
         self.log_std = torch.nn.Parameter(log_std)
 
         self.optimizer = torch.optim.Adam(
