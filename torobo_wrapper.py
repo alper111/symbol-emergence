@@ -192,7 +192,7 @@ class Torobo:
             True if the robot arm is in collision.
         """
         msg = rospy.wait_for_message("/torobo/left_gripper_controller/torobo_joint_state", ToroboJointState)
-        if msg.acceleration[0] > 20.0 and (msg.acceleration[0] != np.inf) and (msg.acceleration[0] != -np.inf):
+        if abs(msg.acceleration[0]) > 20.0 and (msg.acceleration[0] != np.inf) and (msg.acceleration[0] != -np.inf):
             return True
         else:
             return False
