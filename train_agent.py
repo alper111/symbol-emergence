@@ -70,8 +70,9 @@ while update_count < opts["episode"]:
     skip = False
     for t in range(opts["max_timesteps"]):
         action, logprob = model.action(obs)
+        act_tanh = torch.tanh(action)
         states.append(obs)
-        obs, reward, done, success = world.step(obs.cpu().numpy(), action.cpu().numpy(), rate)
+        obs, reward, done, success = world.step(obs.cpu().numpy(), act_tanh.cpu().numpy(), rate)
         obs = torch.tensor(obs, dtype=torch.float, device=opts["device"])
         if not success:
             skip = True
