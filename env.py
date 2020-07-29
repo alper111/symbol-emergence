@@ -107,11 +107,14 @@ class Environment:
         state : bool
             True if the state is terminal. Otherwise, False.
         """
-        cube_pos = self.get_object_position(self.objects[1])[:2]
+        obj_pos = self.get_object_position(self.objects[1])[:2]
         target_pos = self.prev_positions[0][:2]
-        distance_target = np.linalg.norm(target_pos-cube_pos, 2)
+        distance_target = np.linalg.norm(target_pos-obj_pos, 2)
         # TODO: set these into parameters in initialization.
         if distance_target < 0.001:
+            return True
+
+        if not utils.in_rectangle(obj_pos, self.abs_limits):
             return True
 
         return False
@@ -185,7 +188,7 @@ class Environment:
         success : bool
             True if action is done else false.
         """
-        normalized_action = action * 0.005
+        normalized_action = action * rate.sleep_dur.to_sec()
         x_next = state[2:4] + normalized_action
         x_clip = utils.clip_to_rectangle(x_next, self.abs_limits)
         action_aug = x_clip.tolist() + [1.17, np.pi, 0, 0]
@@ -200,9 +203,6 @@ class Environment:
 
         done = self.is_terminal()
         if not utils.in_rectangle(x_next, self.abs_limits):
-            done = True
-        if self.robot.in_collision():
-            print("Collision.")
             done = True
 
         reward = self.get_reward(self.init_diff)
