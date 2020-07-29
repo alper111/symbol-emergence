@@ -47,18 +47,21 @@ for epi in range(50):
     cumsum = 0.0
     obs = torch.tensor(world.reset(), dtype=torch.float, device=opts["device"])
     skip = False
-    for t in range(opts["max_timesteps"]):
+    done = False
+    t = 0
+    while not done:
+        t += 1
         with torch.no_grad():
             action, logprob = model.action(obs, std=False)
+            print(action)
         obs, reward, done, success = world.step(obs.cpu().numpy(), action.cpu().numpy(), rate)
         obs = torch.tensor(obs, dtype=torch.float, device=opts["device"])
         if not success:
             skip = True
             break
 
-        if done or (t == (opts["max_timesteps"]-1)):
+        if done:
             cumsum = reward
-            break
         else:
             cumsum = 0.0
 
