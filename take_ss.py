@@ -5,6 +5,7 @@ import torch
 import rospy
 import numpy as np
 import env
+import torobo_wrapper
 
 parser = argparse.ArgumentParser("Record states.")
 parser.add_argument("-s", help="state file", type=str, required=True)
@@ -18,6 +19,8 @@ if not os.path.exists(args.o):
 rospy.init_node("test_node", anonymous=True)
 rate = rospy.Rate(100)
 rospy.sleep(1.0)
+robot = torobo_wrapper.Torobo()
+rospy.sleep(1.0)
 
 # INITIALIZE ENVIRONMENT
 objects = ["target_plate", "small_cube"]
@@ -25,7 +28,7 @@ random_ranges = {
     "target_plate": np.array([[0.32, 0.52], [0.30, 0.50], [1.125, 1.125]]),
     "small_cube": np.array([[0.32, 0.52], [0.0, 0.15], [1.155, 1.155]]),
 }
-world = env.Environment(objects=objects, rng_ranges=random_ranges)
+world = env.Environment(robot=robot, objects=objects, rng_ranges=random_ranges)
 rospy.sleep(0.5)
 
 states = torch.load(args.s)
