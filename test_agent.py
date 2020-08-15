@@ -53,8 +53,8 @@ for epi in range(50):
         t += 1
         with torch.no_grad():
             action, logprob = model.action(obs, std=False)
-            print(action)
-        obs, reward, done, success = world.step(obs.cpu().numpy(), action.cpu().numpy(), rate)
+            act_tanh = torch.tanh(action)
+        obs, reward, done, success = world.step(obs.cpu().numpy(), act_tanh.cpu().numpy(), rate)
         obs = torch.tensor(obs, dtype=torch.float, device=opts["device"])
         if not success:
             skip = True
